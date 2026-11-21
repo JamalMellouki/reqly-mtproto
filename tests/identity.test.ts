@@ -18,13 +18,13 @@ describe("project identity", () => {
     }
     expect(packageJson.name).toBe("reqlyproto")
     expect(packageJson.displayName).toBe("reqly")
-    expect(packageJson.license).toBe("ASYNCTRIC-1.0")
+    expect(packageJson.license).toBe("ASYNCTRIC-3.0")
   })
 
   it("keeps third-party attribution", async () => {
     const notices = await readFile(new URL("../THIRD_PARTY_NOTICES", import.meta.url), "utf8")
     expect(notices).toContain("mtproto-workers")
-    expect(notices).toContain("cifrante")
+    expect(notices).toContain("No WASM binary is shipped")
     expect(notices).toContain("Mellouki Jamal")
   })
 })
