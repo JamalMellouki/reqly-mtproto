@@ -34,5 +34,8 @@ Protocol references:
   https://core.telegram.org/api/files
   https://core.telegram.org/api/file-references
 
+No WASM binary is shipped with this package. Applications that want WASM-backed
+AES may provide their own module to enableWasmCrypto().
+
 Mellouki Jamal — Asynctric
 
