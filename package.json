@@ -1,0 +1,62 @@
+{
+  "name": "reqlyproto",
+  "version": "1.0.0",
+  "description": "A lightweight MTProto 2.0 request/reply client for Cloudflare Workers and Node.",
+  "type": "module",
+  "license": "ASYNCTRIC-3.0",
+  "author": "Mellouki Jamal",
+  "keywords": [
+    "mtproto",
+    "telegram",
+    "cloudflare-workers",
+    "edge",
+    "typescript",
+    "websocket",
+    "http-streaming",
+    "reqly",
+    "asynctric"
+  ],
+  "files": [
+    "dist",
+    "README.md",
+    "README.ar.md",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run build && npm test"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^3.2.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "//": "Maintained by Mellouki Jamal for the Asynctric platform.",
+  "displayName": "reqly",
+  "aliases": [
+    "reqly"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JamalMellouki/reqly-mtproto.git"
+  },
+  "bugs": {
+    "url": "https://github.com/JamalMellouki/reqly-mtproto/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
