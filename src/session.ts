@@ -30,7 +30,10 @@ function readBigInt64LE(view: Uint8Array, offset: number): bigint {
   for (let index = 7; index >= 0; index -= 1) {
     value = (value << 8n) | BigInt(requireByte(view, offset + index))
   }
-  return value
+  // The helper is named ...Int64 (signed). Without sign extension it returned
+  // values above 2^63-1, unlike DataView.getBigInt64, which broke round-trips
+  // with callers comparing the parsed auth_key_id numerically.
+  return value >= 1n << 63n ? value - (1n << 64n) : value
 }
 
 /**
@@ -49,12 +52,15 @@ export async function parseSession(encoded: string): Promise<Session> {
   if (raw.length < 271) throw new Error("reqly: session is too short")
 
   const dcId = requireByte(raw, 0)
+  if (dcId < 1 || dcId > 5) throw new Error(`reqly: invalid data center ${dcId} in session`)
   const addressLength = readUInt16BE(raw, 1)
+  if (addressLength === 0) throw new Error("reqly: session has an empty address")
   const addressEnd = 3 + addressLength
   if (addressEnd + 2 + 256 > raw.length) throw new Error("reqly: malformed session")
 
   const address = new TextDecoder().decode(raw.subarray(3, addressEnd))
   const port = readUInt16BE(raw, addressEnd)
+  if (port === 0) throw new Error("reqly: session has an invalid port")
   const authKey = raw.slice(addressEnd + 2, addressEnd + 2 + 256)
   const authKeyId = await authKeyIdOf(authKey)
 

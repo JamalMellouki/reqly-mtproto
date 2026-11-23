@@ -8,6 +8,7 @@
 import { TlReader, TlWriter, IDs } from "./tl"
 import type { RemoteDocument } from "./tl"
 import type { Reqly } from "./client"
+import { FileReferenceExpiredError } from "./errors"
 
 export interface FileHashEntry {
   offset: number
@@ -31,22 +32,57 @@ export function decodeFileHashes(payload: Uint8Array): FileHashEntry[] {
   return entries
 }
 
-/** Returns the hashes covering the given byte range, or an empty list. */
-export async function getFileHashes(client: Reqly, location: RemoteDocument, offset: number): Promise<FileHashEntry[]> {
+/**
+ * Serializes `upload.getFileHashes`. The `offset` field is a TL `long`, not an
+ * `int`; encoding it as int shifted every following byte and produced
+ * LOCATION_INVALID on the wire.
+ */
+export function encodeGetFileHashes(
+  location: RemoteDocument,
+  offset: number,
+  fileReference: Uint8Array = location.fileReference,
+): Uint8Array {
+  if (!Number.isInteger(offset) || offset < 0) {
+    throw new Error("reqly: getFileHashes offset must be a non-negative integer")
+  }
   const locationBytes = new TlWriter()
     .uint(IDs.inputDocumentFileLocation)
     .long(location.id)
     .long(location.accessHash)
-    .bytes(location.fileReference)
+    .bytes(fileReference)
     .string("")
     .result()
-  const method = new TlWriter().uint(0x9156982a).raw(locationBytes).long(BigInt(offset)).result()
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const reply = await client.invoke(method)
+  return new TlWriter().uint(0x9156982a).raw(locationBytes).long(BigInt(offset)).result()
+}
+
+/**
+ * Returns the hashes covering the given byte range, or an empty list.
+ *
+ * This standalone helper always calls the client's primary session. Telegram
+ * answers LOCATION_INVALID when the document lives on another DC, so use
+ * {@link Reqly.getFileHashes} for migration-aware verification.
+ *
+ * @param client - Connected Reqly client.
+ * @param location - Document to verify.
+ * @param offset - Byte offset to start from.
+ * @param refresh - Optional callback returning a fresh file reference.
+ */
+export async function getFileHashes(
+  client: Reqly,
+  location: RemoteDocument,
+  offset = 0,
+  refresh?: () => Promise<RemoteDocument>,
+): Promise<FileHashEntry[]> {
+  let reference = location.fileReference
+  for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      return decodeFileHashes(reply)
+      return decodeFileHashes(await client.invoke(encodeGetFileHashes(location, offset, reference)))
     } catch (error) {
-      if (attempt === 2) throw error
+      if (error instanceof FileReferenceExpiredError && refresh && attempt === 0) {
+        reference = (await refresh()).fileReference
+        continue
+      }
+      throw error
     }
   }
   throw new Error("reqly: getFileHashes failed")

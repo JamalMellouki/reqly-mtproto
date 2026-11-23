@@ -121,15 +121,23 @@ export class TlReader {
   }
 
   bytes(): Uint8Array {
-    let length = this.source[this.offset++] ?? 0
+    if (this.offset >= this.source.length) throw new Error("reqly: TL read past end")
+    let length = this.source[this.offset]!
+    this.offset += 1
     let headerLength = 1
     if (length === 0xfe) {
-      const low = this.source[this.offset++] ?? 0
-      const middle = this.source[this.offset++] ?? 0
-      const high = this.source[this.offset++] ?? 0
+      if (this.offset + 3 > this.source.length) throw new Error("reqly: TL read past end")
+      const low = this.source[this.offset]!
+      const middle = this.source[this.offset + 1]!
+      const high = this.source[this.offset + 2]!
+      this.offset += 3
       length = low | (middle << 8) | (high << 16)
       headerLength = 4
     }
+    // A declared length larger than the remaining payload is corruption, not a
+    // short value. Returning a truncated slice hides wire bugs and can poison
+    // document references, so fail loudly like uint/long/raw do.
+    if (this.offset + length > this.source.length) throw new Error("reqly: TL read past end")
     const value = this.source.slice(this.offset, this.offset + length)
     this.offset += length + ((4 - ((headerLength + length) % 4)) % 4)
     return value
@@ -150,6 +158,41 @@ export class TlReader {
   seek(offset: number): void {
     this.offset = offset
   }
+}
+
+/** `upload.fileCdnRedirect` — Telegram's CDN path for popular public files. */
+export interface CdnRedirect {
+  dcId: number
+  fileToken: Uint8Array
+  encryptionKey: Uint8Array
+  encryptionIv: Uint8Array
+}
+
+/** Decodes either `upload.file` or `upload.fileCdnRedirect`. */
+export function decodeFileOrRedirect(payload: Uint8Array): { kind: "file"; bytes: Uint8Array } | { kind: "redirect"; redirect: CdnRedirect } {
+  const reader = new TlReader(payload)
+  const constructor = reader.uint()
+  if (constructor === IDs.uploadFile) {
+    reader.uint()
+    reader.int()
+    return { kind: "file", bytes: reader.bytes() }
+  }
+  if (constructor === 0xf18cda44) {
+    const dcId = reader.int()
+    const fileToken = reader.bytes()
+    const encryptionKey = reader.bytes()
+    const encryptionIv = reader.bytes()
+    if (reader.uint() !== IDs.vector) throw new Error("reqly: malformed fileCdnRedirect hashes")
+    const count = reader.uint()
+    for (let index = 0; index < count; index += 1) {
+      if (reader.uint() !== 0xf39b035c) throw new Error("reqly: malformed fileCdnRedirect hash")
+      reader.long()
+      reader.int()
+      reader.bytes()
+    }
+    return { kind: "redirect", redirect: { dcId, fileToken, encryptionKey, encryptionIv } }
+  }
+  throw new Error(`reqly: unexpected upload.file 0x${constructor.toString(16)} len=${payload.length} head=${toHex(payload.slice(0, 16))}`)
 }
 
 export interface RemoteDocument {
@@ -182,12 +225,22 @@ function readDocument(reader: TlReader): RemoteDocument {
  */
 export function extractDocuments(payload: Uint8Array): RemoteDocument[] {
   const documents: RemoteDocument[] = []
+  const seen = new Set<string>()
   for (let offset = 0; offset + 4 <= payload.length; offset += 4) {
     if (new DataView(payload.buffer, payload.byteOffset + offset, 4).getUint32(0, true) !== IDs.document) continue
     try {
       const reader = new TlReader(payload.subarray(offset))
       reader.uint()
-      documents.push(readDocument(reader))
+      const document = readDocument(reader)
+      // Reject candidates that cannot be a real document. This keeps the
+      // 4-byte scan from mistaking opaque file_reference bytes for a second
+      // document, and duplicate message ids from yielding duplicate entries.
+      if (document.fileReference.length === 0 || document.fileReference.length > 1024) continue
+      if (document.size < 0n) continue
+      const key = document.id.toString()
+      if (seen.has(key)) continue
+      seen.add(key)
+      documents.push(document)
     } catch {
       continue
     }
@@ -195,11 +248,17 @@ export function extractDocuments(payload: Uint8Array): RemoteDocument[] {
   return documents
 }
 
+function toHex(bytes: Uint8Array): string {
+  let result = ""
+  for (let index = 0; index < bytes.length; index += 1) result += (bytes[index] ?? 0).toString(16).padStart(2, "0")
+  return result
+}
+
 /** Decodes an `upload.file` response body. */
 export function decodeFile(payload: Uint8Array): Uint8Array {
   const reader = new TlReader(payload)
   const constructor = reader.uint()
-  if (constructor !== IDs.uploadFile) throw new Error(`reqly: unexpected upload.file 0x${constructor.toString(16)} len=${payload.length} head=${Buffer.from(payload.slice(0, 16)).toString("hex")}`)
+  if (constructor !== IDs.uploadFile) throw new Error(`reqly: unexpected upload.file 0x${constructor.toString(16)} len=${payload.length} head=${toHex(payload.slice(0, 16))}`)
   reader.uint()
   reader.int()
   return reader.bytes()

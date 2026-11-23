@@ -1,6 +1,6 @@
 {
   "name": "reqlyproto",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "A lightweight MTProto 2.0 request/reply client for Cloudflare Workers and Node.",
   "type": "module",
   "license": "ASYNCTRIC-3.0",
@@ -30,15 +30,17 @@
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && cp src/aes-ige.wasm dist/aes-ige.wasm",
     "test": "vitest run",
     "test:watch": "vitest",
+    "lint": "tsc -p tsconfig.build.json --noEmit",
+    "type-check": "tsc -p tsconfig.build.json --noEmit",
     "prepublishOnly": "npm run build && npm test"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "tsx": "^4.23.15",
-    "typescript": "^7.0.2",
+    "typescript": "^5.7.2",
     "vitest": "^3.2.0"
   },
   "engines": {

@@ -52,6 +52,24 @@ function buildSboxes(): { forward: Uint8Array; inverse: Uint8Array } {
 const boxes = buildSboxes()
 const roundConstants = [0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40]
 
+// Precomputed GF(2^8) products. The old per-byte bit loop cost 8 iterations per
+// multiply, which made a 1 MB IGE payload exceed the Workers CPU budget. The
+// tables are derived from the same audited `multiply` function at module load.
+const gf2 = new Uint8Array(256)
+const gf3 = new Uint8Array(256)
+const gf9 = new Uint8Array(256)
+const gf11 = new Uint8Array(256)
+const gf13 = new Uint8Array(256)
+const gf14 = new Uint8Array(256)
+for (let index = 0; index < 256; index += 1) {
+  gf2[index] = multiply(index, 2)
+  gf3[index] = multiply(index, 3)
+  gf9[index] = multiply(index, 9)
+  gf11[index] = multiply(index, 11)
+  gf13[index] = multiply(index, 13)
+  gf14[index] = multiply(index, 14)
+}
+
 interface BlockCipher {
   encryptBlock(block: Uint8Array): Uint8Array
   decryptBlock(block: Uint8Array): Uint8Array
@@ -98,10 +116,10 @@ function mixColumns(state: Uint8Array): void {
     const a1 = state[offset + 1] ?? 0
     const a2 = state[offset + 2] ?? 0
     const a3 = state[offset + 3] ?? 0
-    state[offset] = multiply(a0, 2) ^ multiply(a1, 3) ^ a2 ^ a3
-    state[offset + 1] = a0 ^ multiply(a1, 2) ^ multiply(a2, 3) ^ a3
-    state[offset + 2] = a0 ^ a1 ^ multiply(a2, 2) ^ multiply(a3, 3)
-    state[offset + 3] = multiply(a0, 3) ^ a1 ^ a2 ^ multiply(a3, 2)
+    state[offset] = gf2[a0]! ^ gf3[a1]! ^ a2 ^ a3
+    state[offset + 1] = a0 ^ gf2[a1]! ^ gf3[a2]! ^ a3
+    state[offset + 2] = a0 ^ a1 ^ gf2[a2]! ^ gf3[a3]!
+    state[offset + 3] = gf3[a0]! ^ a1 ^ a2 ^ gf2[a3]!
   }
 }
 
@@ -112,10 +130,10 @@ function inverseMixColumns(state: Uint8Array): void {
     const a1 = state[offset + 1] ?? 0
     const a2 = state[offset + 2] ?? 0
     const a3 = state[offset + 3] ?? 0
-    state[offset] = multiply(a0, 14) ^ multiply(a1, 11) ^ multiply(a2, 13) ^ multiply(a3, 9)
-    state[offset + 1] = multiply(a0, 9) ^ multiply(a1, 14) ^ multiply(a2, 11) ^ multiply(a3, 13)
-    state[offset + 2] = multiply(a0, 13) ^ multiply(a1, 9) ^ multiply(a2, 14) ^ multiply(a3, 11)
-    state[offset + 3] = multiply(a0, 11) ^ multiply(a1, 13) ^ multiply(a2, 9) ^ multiply(a3, 14)
+    state[offset] = gf14[a0]! ^ gf11[a1]! ^ gf13[a2]! ^ gf9[a3]!
+    state[offset + 1] = gf9[a0]! ^ gf14[a1]! ^ gf11[a2]! ^ gf13[a3]!
+    state[offset + 2] = gf13[a0]! ^ gf9[a1]! ^ gf14[a2]! ^ gf11[a3]!
+    state[offset + 3] = gf11[a0]! ^ gf13[a1]! ^ gf9[a2]! ^ gf14[a3]!
   }
 }
 
@@ -205,7 +223,33 @@ function ige(data: Uint8Array, key: Uint8Array, iv: Uint8Array, decrypting: bool
   return output as Uint8Array<ArrayBufferLike>
 }
 
-let provider: IgeProvider = { encrypt: (data, key, iv) => ige(data, key, iv, false), decrypt: (data, key, iv) => ige(data, key, iv, true) }
+import { wasmIge } from "./wasm-engine"
+
+let wasmAvailable: boolean | undefined
+function engine(data: Uint8Array, key: Uint8Array, iv: Uint8Array, decrypting: boolean): Uint8Array {
+  if (wasmAvailable === undefined) {
+    try {
+      wasmIge(new Uint8Array(16), new Uint8Array(32), new Uint8Array(32), false)
+      wasmAvailable = true
+    } catch {
+      wasmAvailable = false
+    }
+  }
+  if (wasmAvailable) {
+    try {
+      return wasmIge(data, key, iv, decrypting)
+    } catch {
+      // A runtime may reject WASM (e.g. CSP); fall back to the audited JS path.
+      wasmAvailable = false
+    }
+  }
+  return ige(data, key, iv, decrypting)
+}
+
+let provider: IgeProvider = {
+  encrypt: (data, key, iv) => engine(data, key, iv, false),
+  decrypt: (data, key, iv) => engine(data, key, iv, true),
+}
 
 export function setIgeProvider(next: IgeProvider): void {
   provider = next
@@ -217,6 +261,29 @@ export function igeEncrypt(data: Uint8Array, key: Uint8Array, iv: Uint8Array): U
 
 export function igeDecrypt(data: Uint8Array, key: Uint8Array, iv: Uint8Array): Uint8Array {
   return provider.decrypt(data, key, iv)
+}
+
+/** @internal Pure-JS reference implementation, used to validate the WASM engine. */
+export function igeJs(data: Uint8Array, key: Uint8Array, iv: Uint8Array, decrypting: boolean): Uint8Array {
+  return ige(data, key, iv, decrypting)
+}
+
+/**
+ * @internal Shared with the embedded WASM engine so both implementations use
+ * identical S-boxes, GF tables and key schedule. Not part of the public API.
+ */
+export function internalTables(): {
+  forward: Uint8Array
+  inverse: Uint8Array
+  gf2: Uint8Array
+  gf3: Uint8Array
+  gf9: Uint8Array
+  gf11: Uint8Array
+  gf13: Uint8Array
+  gf14: Uint8Array
+  expandKey: (key: Uint8Array) => Uint32Array
+} {
+  return { forward: boxes.forward, inverse: boxes.inverse, gf2, gf3, gf9, gf11, gf13, gf14, expandKey }
 }
 
 async function sha256(...parts: Uint8Array[]): Promise<Uint8Array> {

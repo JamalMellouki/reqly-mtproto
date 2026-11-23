@@ -14,5 +14,15 @@ describe("TL codec", () => {
     const payload = new TlWriter().uint(0x96a18d5).uint(0x105).int(123).bytes(new Uint8Array([0, 1, 2, 3])).result()
     expect(decodeFile(payload)).toEqual(new Uint8Array([0, 1, 2, 3]))
   })
+
+  it("rejects a truncated bytes value instead of returning a short slice", () => {
+    expect(() => new TlReader(new Uint8Array([5, 1, 2])).bytes()).toThrow("past end")
+    expect(() => new TlReader(new Uint8Array([0xfe, 5, 0, 0, 1])).bytes()).toThrow("past end")
+  })
+
+  it("rejects a bytes header that is cut off", () => {
+    expect(() => new TlReader(new Uint8Array([0xfe, 1])).bytes()).toThrow("past end")
+    expect(() => new TlReader(new Uint8Array([])).bytes()).toThrow("past end")
+  })
 })
 // Mellouki Jamal — Asynctric

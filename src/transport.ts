@@ -10,33 +10,71 @@
 import { deriveKeys, igeDecrypt, igeEncrypt } from "./crypto"
 import { TlWriter } from "./tl"
 import type { Session } from "./session"
+import {
+  ABRIDGED_TAG,
+  FORBIDDEN_FIRST,
+  MSG_CONTAINER,
+  GZIP_PACKED,
+  RPC_RESULT,
+  BAD_SERVER_SALT,
+  BAD_MSG_NOTIFICATION,
+  NEW_SESSION_CREATED,
+  MSGS_ACK,
+  PING,
+  PING_DELAY_DISCONNECT,
+  RPC_ERROR,
+  MAX_FRAME_PAYLOAD,
+  DEFAULT_TIMEOUT_MS,
+} from "./protocol"
 
+/**
+ * Decrypted MTProto envelope containing the response body and metadata.
+ */
 export interface Envelope {
+  /** The message ID this envelope responds to. */
   requestId: bigint
+  /** The message ID of this response. */
   msgId: bigint
+  /** The server salt returned with this response. */
   serverSalt: bigint
+  /** Message sequence number. */
   sequence: number
+  /** Decrypted response body. */
   body: Uint8Array
 }
 
+/**
+ * Options for a single RPC call via {@link call}.
+ */
 export interface CallOptions {
+  /** Server salt to use for this request. Defaults to 0. */
   salt?: bigint
+  /** Per-call timeout in milliseconds. Falls back to DEFAULT_TIMEOUT_MS. */
   timeoutMs?: number | undefined
+  /** Callback invoked when a new server salt is received. */
   onSalt?: (salt: bigint) => void
+  /** Message ID generator to use. Defaults to a new MessageIds instance. */
   ids?: MessageIds
 }
 
+/**
+ * Result of a successful RPC call.
+ */
 export interface CallResult {
+  /** Decrypted response body. */
   body: Uint8Array
+  /** The server salt from this response. */
   serverSalt: bigint
+  /** Number of request messages sent. */
   requestMessages: number
+  /** Number of response bytes received. */
   responseBytes: number
 }
 
-const ABRIDGED_TAG = new Uint8Array([0xef, 0xef, 0xef, 0xef])
-const FORBIDDEN_FIRST = new Set([0x44414548, 0x54534f50, 0x20544547, 0xeeeeeeee])
-
-/** Monotonic msg_id: unix time in 2^-32 seconds, divisible by four. */
+/**
+ * Generates monotonic msg_id values: unix time in 2^-32 seconds, divisible by four.
+ * Each instance maintains its own counter, so concurrent clients never collide.
+ */
 export class MessageIds {
   private last = 0n
 
@@ -135,7 +173,8 @@ function abridgedFrame(payload: Uint8Array): Uint8Array {
   return concat(new Uint8Array([0x7f, words & 0xff, (words >>> 8) & 0xff, (words >>> 16) & 0xff]), payload)
 }
 
-class AbridgedReader {
+/** @internal Exported for protocol regression tests; not part of the public API. */
+export class AbridgedReader {
   private buffered: Uint8Array = new Uint8Array()
 
   constructor(private readonly decrypt: (data: Uint8Array) => Promise<Uint8Array>) {}
@@ -147,13 +186,30 @@ class AbridgedReader {
     for (;;) {
       const first = this.buffered[0]
       if (first === undefined) break
+      // A zero-length abridged frame is a transport keepalive: ignore it.
+      if (first === 0) {
+        this.buffered = this.buffered.slice(1)
+        continue
+      }
+      // Quick ACK tokens are standalone 4-byte packets with the MSB set in
+      // their first byte (bswapped token). They have no length prefix.
+      if ((first & 0x80) !== 0) {
+        if (this.buffered.length < 4) break
+        this.buffered = this.buffered.slice(4)
+        continue
+      }
       const prefix = first === 0x7f ? 4 : 1
       if (this.buffered.length < prefix) break
       const words = first === 0x7f
         ? (this.buffered[1] ?? 0) | ((this.buffered[2] ?? 0) << 8) | ((this.buffered[3] ?? 0) << 16)
         : first
       const length = words * 4
-      if (length <= 0 || length > 16778240) throw new Error("reqly: invalid abridged frame")
+      if (length <= 0 || length > MAX_FRAME_PAYLOAD) {
+        // Drop the poisoned prefix. Keeping it would make every later push
+        // fail on the same bytes and stall every pending RPC.
+        this.buffered = new Uint8Array()
+        throw new Error("reqly: invalid abridged frame")
+      }
       if (this.buffered.length < prefix + length) break
       packets.push(this.buffered.slice(prefix, prefix + length))
       this.buffered = this.buffered.slice(prefix + length)
@@ -162,31 +218,79 @@ class AbridgedReader {
   }
 }
 
-async function openSocket(address: string): Promise<WebSocket> {
+function waitForOpen(socket: WebSocket, timeoutMs: number | undefined): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    let settled = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+
+    const cleanup = (): void => {
+      if (timer !== undefined) clearTimeout(timer)
+      socket.removeEventListener("open", onOpen)
+      socket.removeEventListener("error", onError)
+      socket.removeEventListener("close", onClose)
+    }
+    const finish = (error?: Error): void => {
+      if (settled) return
+      settled = true
+      cleanup()
+      if (error) reject(error)
+      else resolve()
+    }
+    const onOpen = (): void => finish()
+    const onError = (): void => finish(new Error("reqly: websocket failed"))
+    // A socket that closes before `open` would otherwise leave this promise
+    // pending until the timeout (or forever when no timeout was supplied).
+    const onClose = (): void => finish(new Error("reqly: websocket closed before open"))
+
+    if (timeoutMs && timeoutMs > 0) {
+      timer = setTimeout(() => {
+        try { socket.close() } catch { /* already closed */ }
+        finish(new Error(`reqly: websocket open timed out after ${timeoutMs}ms`))
+      }, timeoutMs)
+    }
+    socket.addEventListener("open", onOpen, { once: true })
+    socket.addEventListener("error", onError, { once: true })
+    socket.addEventListener("close", onClose, { once: true })
+  })
+}
+
+async function openSocket(address: string, timeoutMs?: number): Promise<WebSocket> {
   const url = `wss://${address}/apiws`
+  const deadline = timeoutMs && timeoutMs > 0 ? Date.now() + timeoutMs : undefined
   if (typeof WebSocket !== "undefined") {
     let lastError: unknown
     for (let attempt = 0; attempt < 3; attempt += 1) {
+      const remaining = deadline === undefined ? undefined : deadline - Date.now()
+      if (remaining !== undefined && remaining <= 0) break
       const socket = new WebSocket(url, "binary")
       try {
-        await new Promise<void>((resolve, reject) => {
-          socket.addEventListener("open", () => resolve(), { once: true })
-          socket.addEventListener("error", () => reject(new Error("reqly: websocket failed")), { once: true })
-        })
+        await waitForOpen(socket, remaining)
         return socket
       } catch (error) {
         lastError = error
         try { socket.close() } catch { /* already closed */ }
-        await new Promise((resolve) => setTimeout(resolve, 120 * (attempt + 1)))
+        const backoff = 120 * (attempt + 1)
+        const left = deadline === undefined ? backoff : deadline - Date.now()
+        if (left <= 0) break
+        await new Promise((resolve) => setTimeout(resolve, Math.min(backoff, left)))
       }
     }
-    throw lastError
+    throw lastError ?? new Error(`reqly: websocket open timed out after ${timeoutMs}ms`)
   }
-  const response = await fetch(`https://${address}/apiws`, { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": "binary" } })
-  const socket = (response as Response & { webSocket?: WebSocket }).webSocket
-  if (!socket) throw new Error(`reqly: websocket upgrade failed with ${response.status}`)
-  ;(socket as WebSocket & { accept(): void }).accept()
-  return socket
+  const controller = deadline === undefined ? undefined : new AbortController()
+  const timer = controller === undefined ? undefined : setTimeout(() => controller.abort(), Math.max(1, deadline! - Date.now()))
+  try {
+    const response = await fetch(`https://${address}/apiws`, {
+      headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": "binary" },
+      ...(controller ? { signal: controller.signal } : {}),
+    })
+    const socket = (response as Response & { webSocket?: WebSocket }).webSocket
+    if (!socket) throw new Error(`reqly: websocket upgrade failed with ${response.status}`)
+    ;(socket as WebSocket & { accept(): void }).accept()
+    return socket
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
+  }
 }
 
 async function encryptMessage(input: {
@@ -236,15 +340,6 @@ async function decompress(value: Uint8Array): Promise<Uint8Array> {
   const stream = new Blob([value.slice().buffer as ArrayBuffer]).stream().pipeThrough(new DecompressionStream("gzip"))
   return new Uint8Array(await new Response(stream).arrayBuffer())
 }
-
-const MSG_CONTAINER = 0x73f1f8dc
-const GZIP_PACKED = 0x3072cfa1
-const RPC_RESULT = 0xf35c6d01
-const BAD_SERVER_SALT = 0xedab447b
-const BAD_MSG_NOTIFICATION = 0xa7eff811
-const NEW_SESSION_CREATED = 0x9ec20908
-const MSGS_ACK = 0x62d6b459
-const RPC_ERROR = 0x2144ca19
 
 type ProtocolEvent =
   | { type: "result"; body: Uint8Array }
@@ -313,6 +408,18 @@ async function readEvents(body: Uint8Array, requestId: bigint, ackIds: bigint[])
   return [{ type: "ignore" }]
 }
 
+/**
+ * Performs a single MTProto RPC over a fresh WebSocket connection.
+ *
+ * Opens a socket to the data center, performs the obfuscated handshake,
+ * encrypts and sends the method, then reads and decrypts the response.
+ * Handles salt corrections, retries, and MTProto protocol events internally.
+ *
+ * @param session - The Telegram session (auth key, DC address, etc.).
+ * @param method - The serialized TL method body to send.
+ * @param options - Optional call options (salt, timeout, message IDs).
+ * @returns The decrypted response body and call metadata.
+ */
 export async function call(session: Session, method: Uint8Array, options: CallOptions = {}): Promise<CallResult> {
   const authKeyId = new Uint8Array(await crypto.subtle.digest("SHA-1", session.authKey as unknown as BufferSource)).slice(-8)
   const sessionId = new DataView(crypto.getRandomValues(new Uint8Array(8)).buffer).getBigInt64(0, true)
@@ -330,7 +437,7 @@ export async function call(session: Session, method: Uint8Array, options: CallOp
   const encryptedHeader = await outbound.apply(header)
   header.set(encryptedHeader.slice(56), 56)
 
-  const socket = await openSocket(session.address)
+  const socket = await openSocket(session.address, options.timeoutMs ?? DEFAULT_TIMEOUT_MS)
   socket.binaryType = "arraybuffer"
   const reader = new AbridgedReader((data) => inbound.apply(data))
   const queue: Uint8Array[] = []
@@ -342,6 +449,9 @@ export async function call(session: Session, method: Uint8Array, options: CallOp
         if (listener) listener(packet)
         else queue.push(packet)
       }
+    }).catch(() => {
+      // Malformed frames are dropped by AbridgedReader; the pending call times
+      // out normally instead of surfacing an unhandled promise rejection.
     })
   })
   let closed = false
@@ -376,7 +486,7 @@ export async function call(session: Session, method: Uint8Array, options: CallOp
       let retry = false
       let received = false
       while (!retry && !received) {
-        const encryptedResponse = await receive(options.timeoutMs ?? 20000)
+        const encryptedResponse = await receive(options.timeoutMs ?? DEFAULT_TIMEOUT_MS)
         responseBytes += encryptedResponse.length
         // Transport errors and quick-acks are standalone short frames, not MTProto envelopes.
         if (encryptedResponse.length < 28) continue
@@ -467,9 +577,12 @@ interface PendingCall {
 }
 
 /**
- * A reusable MTProto connection. One WebSocket is opened per Worker request
- * and every RPC (including parallel chunk downloads) is multiplexed over it,
- * removing the costly socket handshake from each individual getFile call.
+ * A reusable MTProto connection over a single WebSocket.
+ *
+ * One WebSocket is opened per Worker request and every RPC (including parallel
+ * chunk downloads) is multiplexed over it, removing the costly socket
+ * handshake from each individual getFile call. A keep-alive ping is sent
+ * every 30 seconds to prevent idle server disconnects.
  */
 export class Connection {
   private readonly socket: WebSocket
@@ -487,6 +600,7 @@ export class Connection {
   private closed = false
   private readonly saltSignal: Promise<void>
   private resolveSalt: (() => void) | undefined
+  private pingTimer: ReturnType<typeof setInterval> | undefined
 
   private constructor(
     socket: WebSocket,
@@ -505,12 +619,59 @@ export class Connection {
     this.reader = new AbridgedReader((data) => inbound.apply(data))
     this.saltSignal = new Promise<void>((resolve) => { this.resolveSalt = resolve })
     socket.addEventListener("message", (event: MessageEvent) => { void this.onMessage(event) })
-    socket.addEventListener("close", (event: CloseEvent) => {
+    socket.addEventListener("close", () => {
       this.close()
     })
+    // A Worker WebSocket can stay open for hours while a movie is paused.
+    // `ping_delay_disconnect` is the MTProto keepalive clients use for exactly
+    // that case; it also sets how long Telegram keeps the socket idle.
+    this.startPing()
   }
 
-  static async open(session: Session, timeoutMs = 20000): Promise<Connection> {
+  /** Starts the MTProto keepalive that keeps an idle reusable socket open. */
+  private startPing(): void {
+    if (this.pingTimer !== undefined) return
+    this.pingTimer = setInterval(() => {
+      if (this.closed || this.socket.readyState !== WebSocket.OPEN) {
+        this.stopPing()
+        return
+      }
+      // Workers' WebSocket API has no control-frame ping(). Use the MTProto
+      // keepalive RPC. Skip before the first salt is known: Telegram rejects
+      // encrypted messages without a server salt.
+      if (this.salt === 0n) return
+      try {
+        const body = new TlWriter()
+          .uint(PING_DELAY_DISCONNECT)
+          .long(BigInt(Date.now()))
+          .int(75)
+          .result()
+        // `call` uses a content-related sequence number and consumes the Pong
+        // reply. An ignored standalone `ping`/`msgs_ack` frame made Telegram
+        // close the socket in earlier tests.
+        void this.call(body, 20_000).catch(() => {})
+      } catch { /* best effort; the next interval retries */ }
+    }, 30_000)
+  }
+
+  private stopPing(): void {
+    if (this.pingTimer) {
+      clearInterval(this.pingTimer)
+      this.pingTimer = undefined
+    }
+  }
+
+  /**
+   * Opens a new WebSocket connection to a Telegram data center.
+   *
+   * Performs the obfuscated MTProto handshake and returns a Connection
+   * ready to multiplex RPCs. If timeoutMs is provided, the socket open
+   * is aborted after that duration.
+   *
+   * @param session - The Telegram session to connect with.
+   * @param timeoutMs - Socket open timeout in milliseconds. Defaults to DEFAULT_TIMEOUT_MS.
+   */
+  static async open(session: Session, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<Connection> {
     const authKeyId = new Uint8Array(await crypto.subtle.digest("SHA-1", session.authKey as unknown as BufferSource)).slice(-8)
     const sessionId = new DataView(crypto.getRandomValues(new Uint8Array(8)).buffer).getBigInt64(0, true)
     const header = obfuscationHeader(session.dcId)
@@ -519,11 +680,17 @@ export class Connection {
     const inbound = await createStream(reversed.slice(0, 32), reversed.slice(32, 48))
     const encryptedHeader = await outbound.apply(header)
     header.set(encryptedHeader.slice(56), 56)
-    const socket = await openSocket(session.address)
+
+    const socket = await openSocket(session.address, timeoutMs)
+
     socket.binaryType = "arraybuffer"
     const connection = new Connection(socket, session.authKey, authKeyId, sessionId, outbound, inbound)
-    socket.send(header as unknown as ArrayBuffer)
-    void timeoutMs
+    try {
+      socket.send(header as unknown as ArrayBuffer)
+    } catch (error) {
+      connection.close()
+      throw error
+    }
     return connection
   }
 
@@ -570,8 +737,14 @@ export class Connection {
           }
         }
       }
-      void this.sendAcks()
-    } catch { /* malformed frames are ignored; the request will time out */ }
+      // Standalone msgs_ack made Telegram close the socket (1006), forcing a
+      // fresh WebSocket per RPC and exhausting the 50-subrequest limit. Acks
+      // must be batched into the next request body instead; skipped here.
+    } catch (error) {
+      // malformed frames are ignored; the request will time out.
+      // Log in debug so operators can diagnose transport-level corruption.
+      if (typeof console !== "undefined") console.warn("[reqly] transport onMessage error:", error)
+    }
   }
 
   /** Explicitly acknowledges server messages (required by MTProto). */
@@ -625,8 +798,17 @@ export class Connection {
     return this.closed
   }
 
-  /** Sends a raw TL method and resolves with its result body. */
-  call(method: Uint8Array, timeoutMs = 20000): Promise<Uint8Array> {
+  /**
+   * Sends a raw TL method and resolves with its result body.
+   *
+   * The call is multiplexed over this connection's WebSocket. If the
+   * connection is closed, the returned promise rejects immediately.
+   *
+   * @param method - The serialized TL method body to send.
+   * @param timeoutMs - RPC timeout in milliseconds. Defaults to DEFAULT_TIMEOUT_MS.
+   * @returns The decrypted response body.
+   */
+  call(method: Uint8Array, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<Uint8Array> {
     if (this.closed) return Promise.reject(new Error("reqly: connection closed"))
     const requestId = this.ids.next()
     const sequence = this.count * 2 + 1
@@ -645,9 +827,16 @@ export class Connection {
     })
   }
 
+  /**
+   * Closes the WebSocket and rejects all pending calls.
+   *
+   * Safe to call multiple times. After closing, all subsequent calls
+   * will reject with "reqly: connection closed".
+   */
   close(): void {
     if (this.closed) return
     this.closed = true
+    this.stopPing()
     for (const [, pending] of this.pending) {
       clearTimeout(pending.timer)
       pending.reject(new Error("reqly: connection closed"))

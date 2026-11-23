@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises"
 import { Reqly } from "../src/index.ts"
-const env = await readFile("/public/stream bots/.env", "utf8")
+const envPath = process.env.REQLY_ENV_FILE ?? "/public/stream bots/.env"
+const env = await readFile(envPath, "utf8")
 const v = (k: string) => new RegExp(`^${k}=(.+)$`, "m").exec(env)?.[1]?.trim() ?? ""
 const client = await Reqly.connect(v("MTPROTO_SESSION"), { timeoutMs: 25000 })
 try {
