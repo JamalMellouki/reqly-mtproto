@@ -1,5 +1,12 @@
 # reqlyproto (`reqly`)
 
+[![npm version](https://img.shields.io/npm/v/reqlyproto.svg)](https://www.npmjs.com/package/reqlyproto)
+[![latest release](https://img.shields.io/github/v/release/JamalMellouki/reqly-mtproto.svg)](https://github.com/JamalMellouki/reqly-mtproto/releases)
+[![CI](https://github.com/JamalMellouki/reqly-mtproto/actions/workflows/ci.yml/badge.svg)](https://github.com/JamalMellouki/reqly-mtproto/actions/workflows/ci.yml)
+[![license](https://img.shields.io/badge/license-ASYNCTRIC--3.0-blue.svg)](./LICENSE)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue.svg)](https://www.typescriptlang.org/)
+[![Node](https://img.shields.io/badge/node-%3E%3D20-green.svg)](https://nodejs.org/)
+
 `reqlyproto` is a small MTProto 2.0 request/reply client built for Cloudflare
 Workers and other edge runtimes. The short name **`reqly`** refers to the same
 package. It offers two transport modes:
@@ -11,11 +18,11 @@ package. It offers two transport modes:
 
 Both modes keep all state inside the client instance — nothing is module-global.
 
-- Version: **1.0.0**
+- Version: **2.0.0** ([browse releases](https://github.com/JamalMellouki/reqly-mtproto/releases))
 - Package: **reqlyproto** (short name: **reqly**)
 - Author: **Mellouki Jamal**
 - Platform: **Asynctric**
-- License: **ASYNCTRIC-1.0** (permissive open source; author and platform
+- License: **ASYNCTRIC-3.0** (permissive open source; author and platform
   identity must be preserved in copies and derivatives)
 
 ## Why reqly
@@ -32,6 +39,27 @@ reqly keeps only what file access requires:
 - a small TL codec for method calls and file replies.
 
 No runtime dependencies. No native modules. No state between requests.
+
+## Features at a glance
+
+| | |
+|---|---|
+| **⚡ Edge-native**<br>Zero runtime dependencies, no native modules, per-instance state. Safe for concurrent Workers. | **🔁 Two transports**<br>Reusable multiplexed connection per DC, or a fresh socket per RPC for stateless isolation. |
+| **📦 Range streaming**<br>`Range`, `206`, `Content-Range`, `ETag`, `HEAD`, `416`. Batched 1–8 MB responses with adaptive 2→4 workers. | **🧭 Cross-DC ready**<br>Full in-house RSA/DH auth-key exchange; `FILE_MIGRATE_X` retries on the correct DC. |
+| **🔐 Signed stream tokens**<br>Short-lived HMAC-SHA256 tokens for Worker-to-Worker streams. | **🧩 Pluggable crypto**<br>Pure TypeScript AES-256-IGE by default, embedded WASM backend, custom provider hook. |
+| **🪙 High-level SDK**<br>`ReqlySdk.download()`, `.range()`, `.stream()`, `.hashes()` and `.worker()` in one import. | **🧪 Measured, not estimated**<br>Reproducible benchmark + real device numbers in `docs/BENCHMARKS.md`. |
+
+![Architecture](./docs/assets/architecture.svg)
+
+## Versions / الإصدارات
+
+| Version | Status | Best for |
+| --- | --- | --- |
+| **v2.0.0** | ✅ Latest | Streaming, SDK, embedded WASM, tokens, cross-DC |
+| **v1.0.0** | ♻️ Preserved (legacy) | Minimal original request/reply client |
+
+Both are immutable [GitHub releases](https://github.com/JamalMellouki/reqly-mtproto/releases),
+so you can pin whichever fits your workload. Full history: [`CHANGELOG.md`](./CHANGELOG.md).
 
 ## Install
 
@@ -69,15 +97,47 @@ const bytes = await client.getFile(
 // const reply = await client.invoke(new TlWriter().uint(0xc4f9186b).result())
 ```
 
+## SDK (recommended)
+
+`reqlyproto` ships a high-level SDK — no second package to install:
+
+```ts
+import { createReqlySdk, ReqlySdk } from "reqlyproto"
+
+const sdk = await createReqlySdk({
+  session: MT_SESSION,          // Worker secret — never source code
+  dcSessions: DC_SESSIONS,      // optional, for FILE_MIGRATE_X
+  tokenSecret: STREAM_SECRET,   // optional, for issueToken()/verifyToken()
+})
+
+const bytes = await sdk.download(document, { onProgress: (done, total) => {} })
+const stream = sdk.stream(document, { chunkSize: 512 * 1024 })
+const hashes = await sdk.hashes(document)
+const token = await sdk.issueToken({ d: String(document.id), o: 0, l: bytes.length }, 60)
+
+sdk.close()
+```
+
+See [`docs/SDK.md`](./docs/SDK.md) for the full guide (ranges, cache keys,
+Worker handler, backpressure and closing), and
+[`docs/showcase/index.html`](./docs/showcase/index.html) for an interactive,
+offline-safe demo of streaming, scroll-to-seek, measured numbers, SVG and
+Mermaid diagrams.
+
 ## API
 
 | Export | Purpose |
 | --- | --- |
+| `createReqlySdk(options)` / `ReqlySdk` | High-level download, range, stream, hashes, tokens and Worker handler |
+| `ReqlySdk.cacheKey(document, offset, length)` | Stable, reference-safe cache key for a document range |
 | `Reqly.connect(session, options?)` | Parse a session and create a client |
 | `client.invoke(methodBytes)` | Send one raw TL method and return its result bytes |
 | `client.getMessages(channelId, accessHash, ids)` | Resolve document references from a channel |
 | `client.getFile(document, offset, limit)` | Download a file slice (block-aligned, EOF-safe) |
 | `client.getFilesParallel(document, ranges, options?)` | Adaptive parallel pool (2→4 workers, backoff on failure) |
+| `client.getFileHashes(document, offset?, refresh?)` | `upload.getFileHashes` with reference refresh and DC migration |
+| `getFileHashes(client, document, offset?, refresh?)` | Standalone helper (primary DC only) |
+| `ChunkReader` / `createChunkReader` | Cached, block-aligned range reader with prefetch |
 | `client.close()` | Close all reusable connections |
 | `Connection` | Low-level reusable MTProto connection |
 | `SessionStore` | Per-DC session registry |
@@ -86,6 +146,26 @@ const bytes = await client.getFile(
 | `extractDocuments`, `decodeFile` | Helpers for Telegram replies |
 | `setIgeProvider(provider)` | Replace the built-in AES-256-IGE implementation |
 | `deriveKeys`, `messageKeyOf`, `ctrTransform` | Protocol primitives for advanced use |
+
+### One-call Cloudflare Worker
+
+```ts
+import { createWorkerHandler } from "reqlyproto"
+
+export default createWorkerHandler({
+  session: MT_SESSION,
+  connectOptions: { dcSessions: DC_SESSIONS },
+  resolveDocument: () => document,
+  batchChunks: 8,      // 8 x 1 MB = 8 MB per response
+  maxWorkers: 4,       // parallel 1 MB Telegram reads
+  cpuBudgetMs: 4,      // adaptive batch sizing for a strict CPU cap
+})
+```
+
+The handler adds `Range`, `206`, `Content-Range`, `Accept-Ranges`, `ETag`,
+`HEAD` and `416` itself. For lower-level control use `streamFileRange`,
+`createFileResponse` or `createFileRequestHandler`. See
+`docs/PERFORMANCE.md` for measured limits.
 
 ### Options
 
@@ -143,6 +223,34 @@ All steps are regression-guarded by `tests/dh.test.ts`, `tests/handshake.test.ts
 
 - Other errors are `RpcError` with the numeric Telegram code.
 
+### File verification and streaming
+
+`client.getFileHashes()` follows `FILE_MIGRATE_X` when the target DC session was
+supplied through `dcSessions`, and accepts the same refresh callback as `getFile`.
+The standalone `getFileHashes()` helper always uses the primary session: Telegram
+answers `LOCATION_INVALID` when the document lives on another DC, so prefer the
+client method for migrated files. The request offset is encoded as a TL `long`.
+
+```ts
+const entries = await client.getFileHashes(document, 0, refresh)
+const bytes = await client.getFile(document, entries[0].offset, entries[0].limit)
+console.log(await verifyChunk(bytes, entries[0]))
+```
+
+`ChunkReader.readRange(start, end)` returns exactly `end - start + 1` bytes (or
+fewer at EOF). It trims both the leading block skip and the trailing bytes of the
+last fetched chunk. Cache keys include the chunk size, `access_hash` and
+`file_reference`, so a refreshed document reference cannot reuse stale bytes. A
+short response is cached only when it reaches the declared end-of-file; short
+reads in the middle of a file are discarded. `prefetchTail(0)` is a no-op and
+`prefetchAhead` clamps negative positions to zero.
+
+`parseSession` rejects sessions with an out-of-range DC, an empty address or port
+zero before a socket is opened. `getFile` and `getFileHashes` reject negative or
+non-integer offsets/limits, clamp reads to `location.size`, and `getMessages([])`
+returns an empty list without an RPC. `close()` clears the initialized-DC flags, so a reopened connection repeats
+`initWithLayer`.
+
 CDN redirects (`upload.fileCdnRedirect`) are not handled by this version.
 `upload.getFile` is sent with `cdn_supported` unset, so a master DC returns
 `upload.file` directly. If a DC chooses to redirect, handle the redirect at the
@@ -162,7 +270,9 @@ import { enableWasmCrypto } from "reqlyproto"
 enableWasmCrypto(aesWasmModule)
 ```
 
-No WASM binary is shipped with this package.
+A prebuilt AES-256-IGE WASM module is bundled in `dist/aes-ige.wasm` and is
+loaded automatically when available; applications may still provide their own
+module through `enableWasmCrypto()`.
 
 1 MB per `upload.getFile` call is a protocol hard limit. An application can
 aggregate several calls into one HTTP response (e.g. 2–8 MB) to reduce the
@@ -196,6 +306,15 @@ setIgeProvider({
   decrypt: (data, key, iv) => /* AES-256-IGE decrypt */,
 })
 ```
+
+## Documentation
+
+- [`CHANGELOG.md`](./CHANGELOG.md) — complete release history (v1.0.0 preserved, v2.0.0 current)
+- [`docs/SDK.md`](./docs/SDK.md) — SDK guide: download, range, stream, tokens, Worker handler
+- [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) — SVG + Mermaid diagrams, trust boundaries
+- [`docs/BENCHMARKS.md`](./docs/BENCHMARKS.md) — reproducible measurements and raw JSON
+- [`docs/PERFORMANCE.md`](./docs/PERFORMANCE.md) — deployed Worker CPU model and limits
+- [`docs/showcase/index.html`](./docs/showcase/index.html) — interactive, offline-safe demo
 
 ## Development
 

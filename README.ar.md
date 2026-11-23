@@ -3,7 +3,7 @@
 مكتبة MTProto 2.0 خفيفة ومصمّمة لـ Cloudflare Workers وبيئات الحافة (edge).
 الاسم الرسمي للحزمة هو **`reqlyproto`**، والاسم القصير **`reqly`** يُستخدم في التوثيق.
 
-- الإصدار: **1.0.0**
+- الإصدار: **2.0.0** ([الإصدارات](https://github.com/JamalMellouki/reqly-mtproto/releases))
 - المؤلف: **Mellouki Jamal**
 - المنصة: **Asynctric**
 - الترخيص: **ASYNCTRIC-3.0**
@@ -39,9 +39,34 @@ const bytes = await client.getFile(
 client.close()
 ```
 
+## الإصدارات
+| الإصدار | الحالة | الاستخدام |
+| --- | --- | --- |
+| **2.0.0** | ✅ الأحدث | بث، SDK، تشفير WASM، توكنات، دعم مراكز البيانات |
+| **1.0.0** | ♻️ محفوظ | عميل الطلب/الرد الأصلي الأصغر |
+
+كلا الإصدارين متاحان كـ [إصدارات GitHub](https://github.com/JamalMellouki/reqly-mtproto/releases)
+يمكن تثبيت أي منهما حسب الحاجة. السجل الكامل: [`CHANGELOG.md`](./CHANGELOG.md).
+
+## SDK عالي المستوى
+مضمن داخل الحزمة نفسها (لا حزمة إضافية):
+
+```ts
+import { createReqlySdk } from "reqlyproto"
+
+const sdk = await createReqlySdk({ session: MT_SESSION, dcSessions: DC_SESSIONS })
+const bytes = await sdk.download(document)
+const stream = sdk.stream(document, { chunkSize: 512 * 1024 })
+const hashes = await sdk.hashes(document)
+sdk.close()
+```
+
+الدليل الكامل: [`docs/SDK.md`](./docs/SDK.md) · القياسات الحقيقية: [`docs/BENCHMARKS.md`](./docs/BENCHMARKS.md) · عرض تفاعلي: [`docs/showcase/index.html`](./docs/showcase/index.html).
+
 ## واجهة برمجية مختصرة
 | التصدير | الغرض |
 | --- | --- |
+| `createReqlySdk(options)`, `ReqlySdk` | تنزيل وبث وتحقق وتوكنات ومعالج Worker |
 | `Reqly.connect(session, options?)` | إنشاء عميل من سلسلة جلسة |
 | `client.invoke(methodBytes)` | إرسال طريقة TL خام وإرجاع الرد |
 | `client.getMessages(...)` | استخراج مراجع الملفات من قناة |

@@ -1,4 +1,4 @@
-Third-party notices for reqly 1.0.0
+Third-party notices for reqly 2.0.0
 
 The obfuscated WebSocket transport (src/transport.ts) follows the design of
 mtproto-workers by bunizao (MIT License), in particular the stateful AES-CTR
@@ -34,8 +34,9 @@ Protocol references:
   https://core.telegram.org/api/files
   https://core.telegram.org/api/file-references
 
-No WASM binary is shipped with this package. Applications that want WASM-backed
-AES may provide their own module to enableWasmCrypto().
+A prebuilt AES-256-IGE WASM module (`dist/aes-ige.wasm`) is bundled with this
+package since 2.0.0. Applications may still provide their own WASM-backed AES
+module through enableWasmCrypto().
 
 Mellouki Jamal — Asynctric
 

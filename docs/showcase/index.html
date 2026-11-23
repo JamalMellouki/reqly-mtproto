@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>reqly 2.0.0 — streaming, ranges & SDK</title>
+<meta name="description" content="A minimal, offline-safe showcase of reqly 2.0.0: HTTP range streaming, scroll-to-seek, measured performance, SVG diagrams and Mermaid integration." />
+<style>
+  :root {
+    --bg: #080d18;
+    --surface: #101827;
+    --surface-2: #162033;
+    --line: #223049;
+    --text: #e8eef9;
+    --muted: #93a4bf;
+    --accent: #38bdf8;
+    --accent-2: #22d3ee;
+    --good: #a3e635;
+    --radius: 18px;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.6 Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  body::before {
+    content: "";
+    position: fixed; inset: 0; z-index: -1;
+    background:
+      radial-gradient(60rem 30rem at 15% -10%, rgba(56,189,248,.14), transparent 65%),
+      radial-gradient(50rem 28rem at 90% 5%, rgba(34,211,238,.10), transparent 60%);
+    pointer-events: none;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 22px 90px; }
+  header.hero { padding: 70px 0 38px; }
+  .badges { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 22px; }
+  .badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 5px 11px; border: 1px solid var(--line); border-radius: 999px;
+    background: rgba(16,24,39,.75); color: var(--muted); font-size: 12px;
+  }
+  .badge b { color: var(--text); font-weight: 600; }
+  h1 { margin: 0 0 12px; font-size: clamp(34px, 6vw, 58px); line-height: 1.08; letter-spacing: -.035em; }
+  h1 span { background: linear-gradient(100deg, var(--accent), var(--accent-2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .lede { max-width: 720px; color: var(--muted); font-size: 17px; margin: 0 0 24px; }
+  .actions { display: flex; flex-wrap: wrap; gap: 10px; }
+  a.btn {
+    display: inline-flex; align-items: center; gap: 8px; text-decoration: none;
+    padding: 11px 17px; border-radius: 12px; font-weight: 600; font-size: 14px;
+    border: 1px solid var(--line); color: var(--text); background: var(--surface);
+    transition: transform .15s ease, border-color .15s ease;
+  }
+  a.btn:hover { transform: translateY(-2px); border-color: var(--accent); }
+  a.btn.primary { background: linear-gradient(100deg, var(--accent), var(--accent-2)); color: #04121c; border-color: transparent; }
+  section { margin-top: 62px; }
+  h2 { font-size: 26px; letter-spacing: -.02em; margin: 0 0 8px; }
+  .sub { color: var(--muted); margin: 0 0 24px; }
+  .grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
+  .card {
+    background: linear-gradient(160deg, var(--surface), var(--surface-2));
+    border: 1px solid var(--line); border-radius: var(--radius); padding: 20px;
+  }
+  .card .ico { font-size: 22px; margin-bottom: 10px; }
+  .card h3 { margin: 0 0 6px; font-size: 16px; }
+  .card p { margin: 0; color: var(--muted); font-size: 14px; }
+  .demo {
+    display: grid; grid-template-columns: 1.15fr .85fr; gap: 18px;
+    background: linear-gradient(160deg, var(--surface), var(--surface-2));
+    border: 1px solid var(--line); border-radius: var(--radius); padding: 20px;
+  }
+  @media (max-width: 780px) { .demo { grid-template-columns: 1fr; } }
+  .screen {
+    border: 1px solid var(--line); border-radius: 14px; overflow: hidden;
+    background: #070b13; position: relative;
+  }
+  .bar { display: flex; align-items: center; gap: 8px; padding: 10px 13px; border-bottom: 1px solid var(--line); }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: #334155; }
+  .url { margin-left: 8px; color: var(--muted); font: 12px ui-monospace, monospace; }
+  .viewport { height: 230px; overflow-y: auto; padding: 16px; scrollbar-color: var(--accent) #0d1524; }
+  .viewport::-webkit-scrollbar { width: 9px; }
+  .viewport::-webkit-scrollbar-thumb { background: var(--accent); border-radius: 9px; }
+  .block {
+    border: 1px solid var(--line); border-radius: 10px; margin-bottom: 10px;
+    padding: 12px 14px; background: #0c1421; display: flex; justify-content: space-between; gap: 12px;
+    font: 12px ui-monospace, monospace; color: var(--muted);
+  }
+  .block b { color: var(--text); }
+  .block.hot { border-color: var(--accent); box-shadow: 0 0 0 1px rgba(56,189,248,.25) inset; }
+  .controls { display: flex; align-items: center; gap: 12px; padding: 13px; border-top: 1px solid var(--line); }
+  button.play {
+    border: 0; border-radius: 10px; padding: 9px 15px; font-weight: 700; cursor: pointer;
+    background: linear-gradient(100deg, var(--accent), var(--accent-2)); color: #04121c;
+  }
+  input[type=range] { flex: 1; accent-color: var(--accent); }
+  .mono { font: 12px ui-monospace, monospace; color: var(--muted); }
+  .log { height: 230px; overflow: auto; margin: 0; padding: 14px; border-radius: 14px; background: #070b13; border: 1px solid var(--line); font: 12px/1.75 ui-monospace, monospace; color: var(--muted); }
+  .log .ok { color: var(--good); } .log .hi { color: var(--accent); }
+  .stat { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px dashed var(--line); font-size: 13px; }
+  .stat b { color: var(--text); font-variant-numeric: tabular-nums; }
+  img.diagram { width: 100%; border: 1px solid var(--line); border-radius: var(--radius); display: block; }
+  pre {
+    margin: 0; padding: 18px; border-radius: var(--radius); border: 1px solid var(--line);
+    background: #070b13; overflow: auto; font: 13px/1.7 ui-monospace, monospace; color: #d6e4f7;
+  }
+  pre .k { color: #c084fc; } pre .s { color: #86efac; } pre .c { color: #64748b; }
+  .mermaid-box { margin-top: 16px; border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; background: #0b1220; overflow: auto; }
+  .mermaid svg { max-width: 100%; height: auto; }
+  footer { margin-top: 70px; padding-top: 24px; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .note { font-size: 12px; color: #facc15; margin-top: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <div class="badges">
+    <span class="badge"><b>v2.0.0</b> latest</span>
+    <span class="badge"><b>ASYNCTRIC-3.0</b></span>
+    <span class="badge"><b>0</b> runtime dependencies</span>
+    <span class="badge"><b>TS</b> strict</span>
+    <span class="badge"><b>Edge</b> Workers ready</span>
+  </div>
+  <h1>Tiny client. <span>Real streaming.</span></h1>
+  <p class="lede">reqly is a lightweight MTProto 2.0 request/reply client for Cloudflare Workers and edge runtimes. Version 2.0 adds a high-level SDK, embedded WASM crypto, HTTP range streaming, WebSocket streaming, HMAC tokens, cross-DC routing and measured benchmarks.</p>
+  <div class="actions">
+    <a class="btn primary" href="https://github.com/JamalMellouki/reqly-mtproto/releases/tag/v2.0.0">Get v2.0.0</a>
+    <a class="btn" href="https://github.com/JamalMellouki/reqly-mtproto/releases/tag/v1.0.0">Legacy v1.0.0</a>
+    <a class="btn" href="../SDK.md">SDK guide</a>
+    <a class="btn" href="../BENCHMARKS.md">Measurements</a>
+  </div>
+  <p class="note">This page is a static, offline-safe demo. All bytes shown are synthetic; no Telegram request is made and no credential is used.</p>
+</header>
+
+<section id="features">
+  <h2>Built for the edge, measured on device</h2>
+  <p class="sub">Every capability below ships inside <code>reqlyproto</code> — no second package, no native install step.</p>
+  <div class="grid">
+    <div class="card"><div class="ico">⚡</div><h3>Streaming + Range</h3><p>206 responses with Content-Range, ETag, HEAD and 416. Scroll to seek, batched 1–8 MB per response.</p></div>
+    <div class="card"><div class="ico">🧭</div><h3>Cross-DC ready</h3><p>Full in-house RSA + DH handshake. FILE_MIGRATE_X retries on the correct data center automatically.</p></div>
+    <div class="card"><div class="ico">🔐</div><h3>Signed stream tokens</h3><p>Short-lived HMAC-SHA256 tokens authorize Worker-to-Worker streams without exposing a session.</p></div>
+    <div class="card"><div class="ico">🧩</div><h3>Embedded WASM</h3><p>AES-256-IGE compiled into dist, loaded automatically; a custom provider can replace it at startup.</p></div>
+    <div class="card"><div class="ico">🪶</div><h3>Zero shared state</h3><p>Per-instance msg_id counters and connections. Concurrent Workers cannot collide.</p></div>
+    <div class="card"><div class="ico">🧪</div><h3>Reproducible numbers</h3><p>scripts/bench.mjs writes real measurements to JSON. No credentials, no network, fully reproducible.</p></div>
+  </div>
+</section>
+
+<section id="stream">
+  <h2>Streaming with scroll support</h2>
+  <p class="sub">Drag the slider or scroll the viewport to seek. Each visible block is a simulated 1 MB <code>upload.getFile</code> request answered as HTTP 206.</p>
+  <div class="demo">
+    <div class="screen">
+      <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="url">reqly.dev/file/2GB · Range: bytes=…</span></div>
+      <div class="viewport" id="viewport"></div>
+      <div class="controls">
+        <button class="play" id="play">▶ Play</button>
+        <input type="range" id="seek" min="0" max="100" value="0" aria-label="Seek position" />
+        <span class="mono" id="pos">0 / 100 MB</span>
+      </div>
+    </div>
+    <div>
+      <p class="mono" style="margin-top:0">Live request log</p>
+      <pre class="log" id="log"></pre>
+      <div style="margin-top:14px">
+        <div class="stat"><span>Total bytes served</span><b id="bytes">0 MB</b></div>
+        <div class="stat"><span>Telegram RPCs</span><b id="rpcs">0</b></div>
+        <div class="stat"><span>Cache hits</span><b id="hits">0</b></div>
+        <div class="stat"><span>Active workers</span><b id="workers">0 → 4</b></div>
+        <div class="stat"><span>Batch size</span><b id="batch">8 × 1 MB</b></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="performance">
+  <h2>Performance, not promises</h2>
+  <p class="sub">Median of 3 runs on Node v26.4.0 (android/arm64) against the shipped build. IGE is serial by design; native WebCrypto primitives are ~70× faster.</p>
+  <img class="diagram" src="../assets/perf-chart.svg" alt="Bar chart of measured reqly operation latency" />
+  <div class="grid" style="margin-top:14px">
+    <div class="card"><div class="ico">1.8 ms</div><h3>SHA-256 · 1 MB</h3><p>Native WebCrypto. The streaming path deliberately avoids hashing inside a Worker request.</p></div>
+    <div class="card"><div class="ico">14.7 ms</div><h3>AES-CTR · 8 MB</h3><p>Parallelizable CDN path. The only route to native-speed large ranges.</p></div>
+    <div class="card"><div class="ico">122.8 ms</div><h3>AES-IGE · 1 MB</h3><p>Serial TypeScript backend. Embedded WASM reduces this; the protocol itself cannot be parallelized.</p></div>
+  </div>
+</section>
+
+<section id="architecture">
+  <h2>Architecture — SVG &amp; Mermaid</h2>
+  <p class="sub">The static SVG works everywhere. Where Mermaid is available, the same flow is rendered live below it.</p>
+  <img class="diagram" src="../assets/architecture.svg" alt="reqly architecture diagram" />
+  <div class="mermaid-box">
+    <div class="mermaid" id="mermaid-diagram">
+flowchart LR
+  A[Application] --> S[ReqlySdk]
+  A --> C[Reqly core]
+  S --> C
+  C --> T[TL codec]
+  C --> K[AES-IGE / RSA / DH]
+  K --> W[Embedded WASM]
+  C --> X[MTProto transport]
+  X --> D[Telegram DC]
+  S --> H[HTTP 206 streaming]
+  S --> Q[WebSocket streaming]
+  S --> TK[HMAC tokens]
+    </div>
+  </div>
+</section>
+
+<section id="sdk">
+  <h2>SDK in three calls</h2>
+  <p class="sub">Download, stream and verify — the raw client remains one property away.</p>
+  <pre><span class="c">// npm install reqlyproto</span>
+<span class="k">import</span> { createReqlySdk, ReqlySdk } <span class="k">from</span> <span class="s">"reqlyproto"</span>
+
+<span class="k">const</span> sdk = <span class="k">await</span> <span class="k">createReqlySdk</span>({
+  session: MT_SESSION,          <span class="c">// Worker secret</span>
+  dcSessions: DC_SESSIONS,
+  tokenSecret: STREAM_SECRET,
+})
+
+<span class="k">const</span> bytes   = <span class="k">await</span> sdk.<span class="k">download</span>(document)
+<span class="k">const</span> stream  = sdk.<span class="k">stream</span>(document, { chunkSize: <span class="s">512 * 1024</span> })
+<span class="k">const</span> hashes = <span class="k">await</span> sdk.<span class="k">hashes</span>(document)
+<span class="k">const</span> key     = ReqlySdk.<span class="k">cacheKey</span>(document, <span class="s">0</span>, bytes.length)
+
+<span class="c">// raw TL access is still available</span>
+<span class="k">await</span> sdk.client.<span class="k">invoke</span>(methodBytes)
+sdk.<span class="k">close</span>()</pre>
+</section>
+
+<footer>
+  <span>Mellouki Jamal · Asynctric · ASYNCTRIC-3.0</span>
+  <span>reqly 2.0.0 · <a href="https://github.com/JamalMellouki/reqly-mtproto" style="color:var(--accent)">source</a> · <a href="../CHANGELOG.md" style="color:var(--accent)">changelog</a></span>
+</footer>
+</div>
+
+<script>
+(function () {
+  const TOTAL = 100, BLOCK = 1;
+  const viewport = document.getElementById("viewport");
+  const seek = document.getElementById("seek");
+  const pos = document.getElementById("pos");
+  const log = document.getElementById("log");
+  const play = document.getElementById("play");
+  const bytesEl = document.getElementById("bytes");
+  const rpcsEl = document.getElementById("rpcs");
+  const hitsEl = document.getElementById("hits");
+  const workersEl = document.getElementById("workers");
+  let cursor = 0, served = 0, rpcs = 0, hits = 0, timer = null;
+
+  function line(html) {
+    log.insertAdjacentHTML("beforeend", html + "\n");
+    log.scrollTop = log.scrollHeight;
+  }
+  function render() {
+    viewport.innerHTML = "";
+    const start = Math.max(0, cursor - 3);
+    for (let i = start; i < Math.min(TOTAL, start + 16); i++) {
+      const el = document.createElement("div");
+      el.className = "block" + (i === cursor ? " hot" : "");
+      el.innerHTML = "<span><b>Block " + String(i).padStart(3, "0") + "</b> · " + (i * BLOCK) + "–" + ((i + 1) * BLOCK - 1) + " MB</span><span>" + (i <= cursor - 1 ? "206 cached" : "idle") + "</span>";
+      viewport.appendChild(el);
+    }
+    pos.textContent = Math.min(cursor, TOTAL) + " / " + TOTAL + " MB";
+    seek.value = Math.round((cursor / TOTAL) * 100);
+    bytesEl.textContent = Math.min(served, TOTAL) + " MB";
+    rpcsEl.textContent = String(rpcs);
+    hitsEl.textContent = String(hits);
+  }
+  function fetchBlock() {
+    if (cursor >= TOTAL) { stop(); line('<span class="hi">■ stream complete — 100 MB served</span>'); return; }
+    const fromCache = served > 0 && cursor % 3 === 0;
+    if (fromCache) {
+      hits++;
+      line('<span class="ok">206</span> bytes=' + (cursor * 1048576) + '-' + ((cursor + 1) * 1048576 - 1) + ' <span class="hi">CACHE HIT</span>');
+    } else {
+      rpcs++;
+      line('<span class="ok">206</span> bytes=' + (cursor * 1048576) + '-' + ((cursor + 1) * 1048576 - 1) + ' ' + (rpcs % 4 === 0 ? 'DC2 migrate' : 'upload.getFile'));
+    }
+    served++;
+    cursor++;
+    workersEl.textContent = (2 + (rpcs % 3)) + " → 4";
+    render();
+  }
+  function start() {
+    if (timer) return;
+    play.textContent = "❚❚ Pause";
+    line('<span class="hi">▶ GET /file · Range: bytes=' + (cursor * 1048576) + '-</span>');
+    timer = setInterval(fetchBlock, 260);
+  }
+  function stop() {
+    if (timer) clearInterval(timer);
+    timer = null;
+    play.textContent = "▶ Play";
+  }
+  play.addEventListener("click", function () { timer ? stop() : start(); });
+  seek.addEventListener("input", function () {
+    cursor = Math.round((Number(seek.value) / 100) * TOTAL);
+    line('<span class="hi">↳ seek → block ' + cursor + '</span>');
+    render();
+  });
+  viewport.addEventListener("scroll", function () {
+    const idx = Math.round((viewport.scrollTop / Math.max(1, viewport.scrollHeight - viewport.clientHeight)) * 12);
+    if (idx !== cursor && idx > 0) {
+      cursor = Math.min(TOTAL - 1, idx);
+      line('<span class="hi">↳ scroll-seek → block ' + cursor + '</span>');
+      render();
+    }
+  }, { passive: true });
+
+  line('<span class="ok">ready</span> reqly 2.0.0 · synthetic demo · no network');
+  render();
+
+  // Mermaid is optional: the SVG above is always visible.
+  try {
+    const target = document.getElementById("mermaid-diagram");
+    const src = target.textContent;
+    const script = document.createElement("script");
+    script.type = "module";
+    script.textContent =
+      'import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";' +
+      'mermaid.initialize({startOnLoad:false,theme:"dark"});' +
+      'mermaid.render("live", ' + JSON.stringify(src) + ').then(function(r){' +
+      'document.getElementById("mermaid-diagram").innerHTML = r.svg;}).catch(function(){});';
+    document.body.appendChild(script);
+  } catch (e) { /* offline: SVG fallback remains */ }
+})();
+</script>
+</body>
+</html>

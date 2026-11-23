@@ -1,0 +1,71 @@
+{
+  "generatedAt": "2026-11-23T22:21:10.933Z",
+  "node": "v26.4.0",
+  "platform": "android/arm64",
+  "note": "Measured on the development device with the shipped dist/ build. Median of 3 runs.",
+  "entries": [
+    {
+      "label": "IGE encrypt 1 MB",
+      "ms": 122.755,
+      "display": "122.8 ms",
+      "throughput": "8.5 MB/s"
+    },
+    {
+      "label": "IGE decrypt 1 MB",
+      "ms": 132.288,
+      "display": "132.3 ms",
+      "throughput": "7.9 MB/s"
+    },
+    {
+      "label": "SHA-256 1 MB",
+      "ms": 1.787,
+      "display": "1.8 ms",
+      "throughput": "586.8 MB/s"
+    },
+    {
+      "label": "SHA-256 8 MB",
+      "ms": 11.139,
+      "display": "11.1 ms",
+      "throughput": "753.1 MB/s"
+    },
+    {
+      "label": "AES-256-CTR 8 MB",
+      "ms": 14.685,
+      "display": "14.7 ms",
+      "throughput": "571.3 MB/s"
+    },
+    {
+      "label": "reqly sha256 helper 1 MB",
+      "ms": 2.095,
+      "display": "2.1 ms",
+      "throughput": "500.6 MB/s"
+    },
+    {
+      "label": "TL encode 1 method",
+      "ms": 0.021,
+      "display": "20.6 µs",
+      "throughput": "4.3 MB/s"
+    },
+    {
+      "label": "TL decode 1 method",
+      "ms": 0.004,
+      "display": "4.0 µs",
+      "throughput": "22.0 MB/s"
+    },
+    {
+      "label": "createStreamToken",
+      "ms": 0.629,
+      "display": "629.2 µs"
+    },
+    {
+      "label": "verifyStreamToken",
+      "ms": 0.653,
+      "display": "653.2 µs"
+    },
+    {
+      "label": "parseByteRange",
+      "ms": 0.001,
+      "display": "1.2 µs"
+    }
+  ]
+}
