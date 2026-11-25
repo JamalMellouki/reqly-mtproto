@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 420" width="920" height="420" role="img" aria-labelledby="title desc">
-  <title id="title">reqly 2.0.0 measured operation latency</title>
-  <desc id="desc">Median of 3 runs on Node v26.4.0, android/arm64. AES-256-IGE is serial by design; WebCrypto primitives are native.</desc>
+  <title id="title">reqly 2.1.0 measured operation latency</title>
+  <desc id="desc">Median of 3 runs on Node v26.4.0, android/arm64, measured for reqly 2.1.0. AES-256-IGE is serial by design; WebCrypto primitives are native.</desc>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#0b1120"/>
@@ -16,7 +16,7 @@
     </linearGradient>
   </defs>
   <rect width="920" height="420" rx="18" fill="url(#bg)"/>
-  <text x="40" y="52" fill="#f8fafc" font-family="Inter, system-ui, sans-serif" font-size="24" font-weight="700">Measured latency — reqly 2.0.0</text>
+  <text x="40" y="52" fill="#f8fafc" font-family="Inter, system-ui, sans-serif" font-size="24" font-weight="700">Measured latency — reqly 2.1.0</text>
   <text x="40" y="76" fill="#94a3b8" font-family="Inter, system-ui, sans-serif" font-size="13">dist build · Node v26.4.0 · android/arm64 · median of 3 runs · lower is better</text>
 
   <g font-family="Inter, system-ui, sans-serif" font-size="13" fill="#cbd5e1">
@@ -29,18 +29,18 @@
   </g>
 
   <g>
-    <rect x="240" y="106" width="482" height="22" rx="6" fill="url(#bar)"/>
-    <text x="732" y="122" fill="#e2e8f0" font-family="Inter, system-ui, sans-serif" font-size="13">122.8 ms</text>
-    <rect x="240" y="154" width="520" height="22" rx="6" fill="url(#bar)"/>
-    <text x="770" y="170" fill="#e2e8f0" font-family="Inter, system-ui, sans-serif" font-size="13">132.3 ms</text>
-    <rect x="240" y="202" width="8" height="22" rx="4" fill="url(#barNative)"/>
-    <text x="258" y="218" fill="#e2e8f0" font-family="Inter, system-ui, sans-serif" font-size="13">1.8 ms</text>
-    <rect x="240" y="250" width="44" height="22" rx="6" fill="url(#barNative)"/>
-    <text x="294" y="266" fill="#e2e8f0" font-family="Inter, system-ui, sans-serif" font-size="13">11.1 ms</text>
-    <rect x="240" y="298" width="58" height="22" rx="6" fill="url(#barNative)"/>
-    <text x="308" y="314" fill="#e2e8f0" font-family="Inter, system-ui, sans-serif" font-size="13">14.7 ms</text>
-    <rect x="240" y="346" width="9" height="22" rx="4" fill="url(#barNative)"/>
-    <text x="259" y="362" fill="#e2e8f0" font-family="Inter, system-ui, sans-serif" font-size="13">2.1 ms</text>
+    <rect x="240" y="106" width="456" height="22" rx="6" fill="url(#bar)"/>
+    <text x="706" y="122" fill="#e2e8f0" font-family="Inter, system-ui, sans-serif" font-size="13">88.3 ms</text>
+    <rect x="240" y="154" width="500" height="22" rx="6" fill="url(#bar)"/>
+    <text x="750" y="170" fill="#e2e8f0" font-family="Inter, system-ui, sans-serif" font-size="13">96.9 ms</text>
+    <rect x="240" y="202" width="15" height="22" rx="4" fill="url(#barNative)"/>
+    <text x="265" y="218" fill="#e2e8f0" font-family="Inter, system-ui, sans-serif" font-size="13">2.9 ms</text>
+    <rect x="240" y="250" width="85" height="22" rx="6" fill="url(#barNative)"/>
+    <text x="335" y="266" fill="#e2e8f0" font-family="Inter, system-ui, sans-serif" font-size="13">16.5 ms</text>
+    <rect x="240" y="298" width="99" height="22" rx="6" fill="url(#barNative)"/>
+    <text x="349" y="314" fill="#e2e8f0" font-family="Inter, system-ui, sans-serif" font-size="13">19.2 ms</text>
+    <rect x="240" y="346" width="16" height="22" rx="4" fill="url(#barNative)"/>
+    <text x="266" y="362" fill="#e2e8f0" font-family="Inter, system-ui, sans-serif" font-size="13">3.1 ms</text>
   </g>
 
   <g font-family="Inter, system-ui, sans-serif" font-size="11" fill="#64748b">

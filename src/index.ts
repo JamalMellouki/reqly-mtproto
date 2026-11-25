@@ -169,13 +169,35 @@ export {
   SDK_BLOCK_BYTES,
   type ReqlySdkOptions,
   type SdkDownloadOptions,
+  type SdkRangeOptions,
   type SdkStreamOptions,
-  type SdkCache,
 } from "./sdk"
+
+// ┌─────────────────────────────────────────────────────────────────────────┐
+// │ Byte caches                                                            │
+// └─────────────────────────────────────────────────────────────────────────┘
+export {
+  MemoryCache,
+  createCacheApiStore,
+  type SdkCache,
+  type SdkCacheStats,
+  type MemoryCacheOptions,
+} from "./cache"
+
+// ┌─────────────────────────────────────────────────────────────────────────┐
+// │ Retry policy                                                           │
+// └─────────────────────────────────────────────────────────────────────────┘
+export {
+  DEFAULT_RETRY_POLICY,
+  isRetryableError,
+  retryDelayMs,
+  withRetry,
+  type RetryPolicy,
+} from "./retry"
 
 // ┌─────────────────────────────────────────────────────────────────────────┐
 // │ Package metadata                                                       │
 // └─────────────────────────────────────────────────────────────────────────┘
-export const version = "2.0.0"
+export const version = "2.1.0"
 export const author = "Mellouki Jamal"
 export const platform = "Asynctric"

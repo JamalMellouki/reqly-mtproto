@@ -4,10 +4,85 @@ All notable changes to `reqlyproto` (short name `reqly`) are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Both releases remain available on the
+All releases remain available on the
 [releases page](https://github.com/JamalMellouki/reqly-mtproto/releases):
-choose `v1.0.0` for the original, minimal request/reply client, or `v2.0.0` for
-the full streaming + SDK release.
+choose `v1.0.0` for the original minimal client, `v2.0.0` for streaming + SDK,
+or `v2.1.0` for cache, resilience and the expanded documentation set.
+
+## [2.1.0] — 2026-11-25
+
+**Cache, resilience and polished docs.** The protocol surface is unchanged;
+this release makes repeated reads cheaper, failures recoverable and the SDK
+behave the way its documentation always promised.
+
+### Added
+
+- **`MemoryCache`** (`src/cache.ts`): dependency-free LRU byte cache with a hard
+  `maxBytes` budget, per-entry TTL, copy-safe reads and `hits`/`misses`/
+  `evictions`/`entries`/`bytes` counters.
+- **`createCacheApiStore(cache, ttl?)`**: adapts the standard `Cache` API used by
+  Cloudflare Workers and browsers to the SDK cache contract.
+- **`SdkCache`, `SdkCacheStats` and `MemoryCacheOptions`** types, exported from
+  the package root.
+- **Retry helpers** (`src/retry.ts`): `withRetry`, `isRetryableError`,
+  `retryDelayMs`, `DEFAULT_RETRY_POLICY` and the `RetryPolicy` type. Backoff is
+  exponential with bounded jitter, small `FLOOD_WAIT_X` errors are absorbed, and
+  an `AbortSignal` cancels pending waits.
+- **Cache and retry options on the SDK**: `cache`/`retry` defaults on
+  `createReqlySdk`, plus per-call overrides on `download`, `range` and `stream`.
+  `SdkRangeOptions` is a new named export.
+- **Cache-aware downloads**: `sdk.download()`, `sdk.range()` and `sdk.stream()`
+  read through the configured cache; only complete blocks are stored.
+- **`If-None-Match` / `304 Not Modified`** support in `createFileResponse()` and
+  the Worker handler, including a regression test.
+- **Documentation set**: `docs/GETTING_STARTED.md`, `docs/COOKBOOK.md`,
+  `docs/API.md`, `docs/FAQ.md`, `SECURITY.md`, a rebuilt `docs/SDK.md` and
+  redesigned English/Arabic READMEs.
+- **Identity assets**: `docs/assets/logo.svg` and
+  `docs/assets/social-card.svg` for the README and release card.
+
+### Changed
+
+- `ParallelOptions` accepts a `refresh` callback and `getFilesParallel` forwards
+  it to every block read.
+- `sdk.hashes()` accepts an optional refresh callback and passes it to
+  `client.getFileHashes()`.
+- `sdk.download()` reports progress after each completed block; the counter is
+  monotonic even when the parallel pool resolves blocks out of order.
+- `sdk.worker()` now defaults to the SDK session **and** the SDK connection
+  options, so secrets and DC sessions are not repeated in application code.
+- `ReqlySdk.cacheKey()` now includes a hex fingerprint of `file_reference`.
+- Package version, identity test, benchmark banner, telemetry strings and all
+  documentation report **2.1.0**.
+- The showcase page, badges, feature cards and README structure were rebuilt
+  around the 2.1.0 story.
+- `docs/SDK.md` now documents the real `StreamTokenPayload` shape
+  (`{ m, w, e, k }`) instead of the obsolete `{ d, o, l }` example.
+
+### Fixed
+
+- **`sdk.download()` ignored its `refresh` option.** The callback is now passed
+  through the block reader to `getFile`, so an expiring reference is recovered
+  in the middle of a download.
+- **`sdk.worker()` started from an empty session** instead of the SDK session.
+  It now inherits both `session` and `connectOptions` unless overridden.
+- **`ReqlySdk.cacheKey()` could collide across reference refreshes.** The
+  reference fingerprint is now part of the key.
+- `MemoryCache.match()` no longer exposes the internal buffer to callers.
+- Documentation drift: the cache key format, token payload, option names and
+  2.1.0 version strings are consistent across README, SDK guide and API
+  reference.
+
+### Security
+
+- Session strings, auth keys, bot tokens and API hashes remain outside source
+  control; no example or test contains a credential.
+- `SECURITY.md` documents supported versions, private reporting, the secret
+  inventory and the pre-deployment checklist.
+- Cache keys are reference-scoped, so a refreshed document cannot be served
+  bytes fetched under an expired reference.
+- Stream tokens stay HMAC-SHA256 signed and short-lived; `304` responses carry
+  no body.
 
 ## [2.0.0] — 2026-11-23
 
@@ -84,5 +159,6 @@ encryption, obfuscated WebSocket transport and a minimal TL codec. Kept as a
 separate, immutable release for applications that only need read-only calls and
 want the smallest possible surface.
 
+[2.1.0]: https://github.com/JamalMellouki/reqly-mtproto/releases/tag/v2.1.0
 [2.0.0]: https://github.com/JamalMellouki/reqly-mtproto/releases/tag/v2.0.0
 [1.0.0]: https://github.com/JamalMellouki/reqly-mtproto/releases/tag/v1.0.0

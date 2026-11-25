@@ -7,7 +7,7 @@ describe("project identity", () => {
   it("keeps the verified identity and version", () => {
     expect(author).toBe("Mellouki Jamal")
     expect(platform).toBe("Asynctric")
-    expect(version).toBe("2.0.0")
+    expect(version).toBe("2.1.0")
   })
 
   it("keeps the package name and short alias", async () => {

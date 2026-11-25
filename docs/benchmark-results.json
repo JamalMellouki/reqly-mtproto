@@ -1,71 +1,88 @@
 {
-  "generatedAt": "2026-11-23T22:21:10.933Z",
+  "generatedAt": "2026-11-25T02:05:01.465Z",
   "node": "v26.4.0",
   "platform": "android/arm64",
   "note": "Measured on the development device with the shipped dist/ build. Median of 3 runs.",
   "entries": [
     {
       "label": "IGE encrypt 1 MB",
-      "ms": 122.755,
-      "display": "122.8 ms",
-      "throughput": "8.5 MB/s"
+      "ms": 88.321,
+      "display": "88.3 ms",
+      "throughput": "11.9 MB/s"
     },
     {
       "label": "IGE decrypt 1 MB",
-      "ms": 132.288,
-      "display": "132.3 ms",
-      "throughput": "7.9 MB/s"
+      "ms": 96.926,
+      "display": "96.9 ms",
+      "throughput": "10.8 MB/s"
     },
     {
       "label": "SHA-256 1 MB",
-      "ms": 1.787,
-      "display": "1.8 ms",
-      "throughput": "586.8 MB/s"
+      "ms": 2.921,
+      "display": "2.9 ms",
+      "throughput": "358.9 MB/s"
     },
     {
       "label": "SHA-256 8 MB",
-      "ms": 11.139,
-      "display": "11.1 ms",
-      "throughput": "753.1 MB/s"
+      "ms": 16.519,
+      "display": "16.5 ms",
+      "throughput": "507.8 MB/s"
     },
     {
       "label": "AES-256-CTR 8 MB",
-      "ms": 14.685,
-      "display": "14.7 ms",
-      "throughput": "571.3 MB/s"
+      "ms": 19.215,
+      "display": "19.2 ms",
+      "throughput": "436.6 MB/s"
     },
     {
       "label": "reqly sha256 helper 1 MB",
-      "ms": 2.095,
-      "display": "2.1 ms",
-      "throughput": "500.6 MB/s"
+      "ms": 3.091,
+      "display": "3.1 ms",
+      "throughput": "339.2 MB/s"
     },
     {
       "label": "TL encode 1 method",
-      "ms": 0.021,
-      "display": "20.6 µs",
+      "ms": 0.02,
+      "display": "20.4 µs",
       "throughput": "4.3 MB/s"
     },
     {
       "label": "TL decode 1 method",
-      "ms": 0.004,
-      "display": "4.0 µs",
-      "throughput": "22.0 MB/s"
+      "ms": 0.006,
+      "display": "5.5 µs",
+      "throughput": "15.9 MB/s"
     },
     {
       "label": "createStreamToken",
-      "ms": 0.629,
-      "display": "629.2 µs"
+      "ms": 1.838,
+      "display": "1.8 ms"
     },
     {
       "label": "verifyStreamToken",
-      "ms": 0.653,
-      "display": "653.2 µs"
+      "ms": 1.406,
+      "display": "1.4 ms"
     },
     {
       "label": "parseByteRange",
+      "ms": 0.002,
+      "display": "1.8 µs"
+    },
+    {
+      "label": "MemoryCache put 1 MB",
+      "ms": 0.423,
+      "display": "422.8 µs",
+      "throughput": "2480.3 MB/s"
+    },
+    {
+      "label": "MemoryCache match 1 MB",
+      "ms": 0.324,
+      "display": "324.0 µs",
+      "throughput": "3236.3 MB/s"
+    },
+    {
+      "label": "withRetry immediate success",
       "ms": 0.001,
-      "display": "1.2 µs"
+      "display": "0.7 µs"
     }
   ]
 }

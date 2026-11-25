@@ -39,6 +39,8 @@ export interface ParallelOptions {
   retries?: number
   /** Custom chunk fetcher (e.g. one that reads from a cache). Defaults to getFile. */
   fetch?: (range: { offset: number; limit: number }, index: number) => Promise<Uint8Array>
+  /** Refresh an expired `file_reference`; forwarded to `getFile` per block. */
+  refresh?: () => Promise<RemoteDocument>
   /** Called as soon as an individual range resolves, before the whole pool finishes. */
   onChunk?: (index: number, bytes: Uint8Array) => void
 }
@@ -300,8 +302,8 @@ export class Reqly {
       .uint(0)
       .int(this.apiId)
       .string("reqly")
-      .string("2.0.0")
-      .string("2.0.0")
+      .string("2.1.0")
+      .string("2.1.0")
       .string("en")
       .string("")
       .string("en")
@@ -587,7 +589,7 @@ export class Reqly {
         try {
           results[index] = options.fetch
             ? await options.fetch(range, index)
-            : await this.getFile(location, range.offset, range.limit)
+            : await this.getFile(location, range.offset, range.limit, options.refresh)
           if (hasFatal) return
           options.onChunk?.(index, results[index]!)
           await yieldToRuntime()

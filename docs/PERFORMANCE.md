@@ -42,12 +42,18 @@ the independent `/chunk` path — identical SHA-256.
   2→4 workers, retries/backoff) and batches them into one HTTP response.
   Default batch is 8 blocks = 8 MB; verify: `curl -H 'Range: bytes=0-8388607'`.
 - `createFileResponse` adds real HTTP semantics: `Range`, `206`, `Content-Range`,
-  `Accept-Ranges`, `ETag`, `HEAD`, `416`. No Node APIs, no external modules.
+  `Accept-Ranges`, `ETag`, `If-None-Match`/`304`, `If-Range`, `HEAD`, `416`.
+  No Node APIs, no external modules.
 - `cpuBudgetMs` option: per-batch wall-time is measured; if a batch exceeds the
   budget the next batch is halved, and it grows again when under half the budget.
-  This is the mechanism for a strict 4 ms deployment.
+  This is the mechanism for a strict 4 ms deployment. (Deprecated in 2.1.0: the
+  continuous scheduler keeps workers busy without a batch barrier; prefer
+  `maxWorkers` and `maxInFlight`.)
 - Cache API integration keys chunks by document id + access hash + file
   reference, so replays consume zero Telegram RPCs.
+- The SDK adds a second, byte-level cache (`MemoryCache` or a custom `SdkCache`)
+  that serves repeated `download`, `range` and `stream` calls without Telegram
+  RPCs. Block-cache overhead is measured in [`BENCHMARKS.md`](./BENCHMARKS.md).
 - No hashing inside the streaming path. Hash verification is opt-in and should
   be fed from `upload.getFileHashes` / CDN hashes, cached once per file.
 
@@ -90,13 +96,17 @@ export default createWorkerHandler({
   session: MT_SESSION,
   connectOptions: { dcSessions: DC_SESSIONS },
   resolveDocument: () => document,
-  batchChunks: 8,
-  workers: 4,
-  cpuBudgetMs: 4,
+  maxWorkers: 4,
+  maxInFlight: 8,
+  // cache: caches.default,  // opt in: Cache API calls are subrequests
 })
 ```
 
 No streaming code, no crypto code, no Range parsing in application code.
+
+> `batchChunks`, `workers` and `cpuBudgetMs` are legacy names. In 2.1.0 use
+> `maxInFlight` and `maxWorkers`; `batchChunks` is still accepted as a deprecated
+> `maxInFlight` alias for source compatibility.
 
 ## Request-count math for a 2 GB movie
 

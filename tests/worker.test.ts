@@ -115,5 +115,14 @@ describe("Workers range integration", () => {
     expect(response.status).toBe(206)
     expect(response.headers.get("content-length")).toBe("100")
   })
+
+  it("returns 304 when If-None-Match matches the document ETag", async () => {
+    const etag = `"reqly-${document.id}-${document.size}"`
+    const request = new Request("https://example.test/file", { headers: { "If-None-Match": etag } })
+    const response = await createFileResponse(fakeClient(), document, request, { cache: false })
+    expect(response.status).toBe(304)
+    expect(response.headers.get("etag")).toBe(etag)
+    expect(await response.text()).toBe("")
+  })
 })
 // Mellouki Jamal — Asynctric

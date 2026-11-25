@@ -1,6 +1,6 @@
-# reqly SDK guide (2.0.0)
+# reqly SDK guide (2.1.0)
 
-The SDK is a thin, opinionated layer over the core client. It is included in
+The SDK is a thin, opinionated layer over the core client. It ships inside
 `reqlyproto` — there is no second package to install.
 
 ```sh
@@ -20,34 +20,50 @@ const sdk = await createReqlySdk({
   tokenSecret: STREAM_TOKEN_SECRET,    // optional: needed for issueToken()
   maxWorkers: 4,                       // optional: parallel block ceiling
   freshSocket: false,                  // optional: one socket per RPC
+  cache: memoryCache,                  // optional: default byte cache
+  retry: { retries: 3 },               // optional: default retry policy
 })
 ```
 
-All options are the same `ReqlyOptions` the core client accepts, plus `session`
-and `tokenSecret`. The underlying client is always available as `sdk.client` for
-raw TL calls.
+All core `ReqlyOptions` are accepted. The underlying client is always available
+as `sdk.client` for raw TL calls.
 
 ## Download a document
 
 ```ts
 const bytes = await sdk.download(document, {
+  refresh: async () => {
+    const [fresh] = await sdk.client.getMessages(channelId, accessHash, [messageId])
+    return fresh!
+  },
   onProgress: (done, total) => console.log(`${done}/${total}`),
 })
 ```
 
 - Splits the document into 1 MB blocks (Telegram's hard limit).
-- Uses the adaptive 2→4 worker pool with retries and backoff.
-- Refreshes expired `file_reference` values automatically when a refresh
-  callback is supplied on the core client call.
-- `length` limits the download to a leading slice.
+- Uses the adaptive 2→4 worker pool with backoff.
+- Forwards `refresh` to **every** `upload.getFile` call, so an expired
+  `file_reference` is recovered inside the download instead of failing halfway.
+- Reads through the configured cache; a repeated download costs zero Telegram
+  RPCs for blocks that are still valid.
+- Reports progress after each completed block. The counter is monotonic even
+  though the pool resolves blocks out of order.
+- `length` limits the download to a leading slice; `blockSize` overrides the
+  1 MB block size (never above 1 MB).
+
+Per-call `cache` and `retry` override the SDK defaults.
 
 ## Read an arbitrary range
 
 ```ts
-const chunk = await sdk.range(document, 10_485_760, 15_728_640)
+const chunk = await sdk.range(document, 10_485_760, 15_728_640, {
+  refresh: refreshDocument,
+})
 ```
 
-The range is inclusive and clamped to the declared document size.
+The range is inclusive. It is validated (`start >= 0`, `end >= start`, both
+integers), served from cache when the exact range is present, and retried with
+the configured policy on transient failures.
 
 ## Stream with backpressure
 
@@ -56,6 +72,7 @@ const stream = sdk.stream(document, {
   chunkSize: 512 * 1024,
   onProgress: (bytes) => console.log(bytes),
   signal: request.signal,
+  refresh: refreshDocument,
 })
 
 return new Response(stream, {
@@ -63,26 +80,121 @@ return new Response(stream, {
 })
 ```
 
-`ReadableStream.pull` fetches one block at a time, so the caller controls flow.
-Aborting the signal stops the next pull with an error.
+`ReadableStream.pull` fetches one block at a time, so the consumer controls
+flow. Each pull goes through the byte cache and the retry policy. Aborting the
+signal stops the next pull with an error.
+
+## Byte cache
+
+The SDK needs only two methods, so any storage can participate:
+
+```ts
+interface SdkCache {
+  match(key: string): Uint8Array | undefined | Promise<Uint8Array | undefined>
+  put(key: string, bytes: Uint8Array, ttlSeconds?: number): void | Promise<void>
+}
+```
+
+### `MemoryCache`
+
+```ts
+import { MemoryCache } from "reqlyproto"
+
+const cache = new MemoryCache({
+  maxBytes: 64 * 1024 * 1024,   // default 64 MiB
+  ttlSeconds: 86_400,           // default 24 h; 0 disables expiry
+})
+```
+
+- LRU eviction with a hard byte budget.
+- TTL per cache and per `put()`.
+- `match()` returns a copy, so a consumer cannot mutate cached bytes.
+- `stats` exposes `hits`, `misses`, `evictions`, `entries` and `bytes`.
+- `delete(key)`, `clear()` and `size` are available for housekeeping.
+
+### Edge Cache API
+
+```ts
+import { createCacheApiStore } from "reqlyproto"
+
+const cache = createCacheApiStore(caches.default, 3600)
+const sdk = await createReqlySdk({ session: MT_SESSION, cache })
+```
+
+Keys must be absolute URLs. TTL is encoded in `Cache-Control`; the platform may
+clamp it. Cache API calls count as subrequests, so opt in deliberately for large
+files.
+
+### Cache keys
+
+```ts
+const key = ReqlySdk.cacheKey(document, offset, length)
+// reqly:<id>:<accessHash>:<fileReferenceHex>:<offset>:<length>
+```
+
+The `file_reference` fingerprint is part of the key. Telegram can re-issue the
+same document id with a new reference, and bytes fetched under a stale reference
+must never satisfy the refreshed document.
+
+Only complete blocks are cached. A short read in the middle of a file is
+discarded, so a later seek cannot be served truncated bytes.
+
+## Retry policy
+
+```ts
+import { withRetry, isRetryableError, DEFAULT_RETRY_POLICY } from "reqlyproto"
+
+const entries = await withRetry(() => sdk.hashes(document), {
+  retries: 3,
+  baseDelayMs: 150,
+  maxDelayMs: 4_000,
+  jitter: 0.2,
+  respectFloodWait: true,
+  maxFloodWaitSeconds: 60,
+  signal: request.signal,
+})
+```
+
+| Field | Default | Meaning |
+| --- | ---: | --- |
+| `retries` | `2` | additional attempts after the first failure |
+| `baseDelayMs` | `150` | first backoff delay |
+| `maxDelayMs` | `4000` | upper bound for one delay |
+| `jitter` | `0.2` | ±20% randomisation |
+| `respectFloodWait` | `true` | absorb small `FLOOD_WAIT_X` |
+| `maxFloodWaitSeconds` | `60` | longer floods fail immediately |
+| `signal` | — | cancels pending waits and further attempts |
+
+`isRetryableError()` accepts `FloodWaitError`, `RpcError` with `429` or `5xx`,
+and the transport messages reqly already treats as transient. File-specific
+errors (`FILE_REFERENCE_EXPIRED`, `FILE_MIGRATE_X`) are **not** blindly repeated:
+the client handles them with explicit refresh and DC-migration flows.
 
 ## Verify integrity
 
 ```ts
-const entries = await sdk.hashes(document)
-// each entry: { offset, limit, hash, ... }
+const entries = await sdk.hashes(document, refreshDocument)
+// each entry: { offset, limit, hash }
 ```
 
-Hashes come from `upload.getFileHashes`, follow `FILE_MIGRATE_X` when a target DC
-session is registered, and can be cached per document. Do not hash inside a
+Hashes come from `upload.getFileHashes`, follow `FILE_MIGRATE_X` when a target
+DC session is registered, and accept a refresh callback. Do not hash inside a
 tight Worker request — see [`BENCHMARKS.md`](./BENCHMARKS.md).
 
 ## Short-lived stream tokens
 
 ```ts
-const token = await sdk.issueToken({ d: String(document.id), o: 0, l: 8 * 1024 * 1024 }, 60)
-const payload = await sdk.verifyToken(token) // null when invalid/expired
+const token = await sdk.issueToken({ m: messageId, w: "work-1", k: "stream" }, 60)
+const payload = await sdk.verifyToken(token)
+// { m, w, e, k } or null when invalid/expired
 ```
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `m` | `number` | Telegram message id in the archive channel |
+| `w` | `string` | internal work id from the catalog |
+| `e` | `number` | expiry, epoch seconds (added automatically) |
+| `k` | `"stream" \| "download"` | permitted action |
 
 Tokens are `<base64url payload>.<base64url HMAC-SHA256 signature>`. Keep the
 secret in a Worker secret; rotate it by changing the value in configuration.
@@ -93,26 +205,19 @@ Never place a token or the secret in a URL that gets logged.
 ```ts
 export default sdk.worker({
   resolveDocument: () => document,
-  batchChunks: 8,
   maxWorkers: 4,
-  cpuBudgetMs: 8,
+  maxInFlight: 8,
+  cache: false,
 })
 ```
 
+`sdk.worker()` inherits the SDK session and connection options, so you do not
+repeat secrets. An explicit `session` or `connectOptions` still wins.
+
 The handler adds `Range`, `206`, `Content-Range`, `Accept-Ranges`, `ETag`,
-`HEAD` and `416`. For lower-level control use `createFileResponse` or
-`createFileRequestHandler` directly.
-
-## Cache key helper
-
-```ts
-const key = ReqlySdk.cacheKey(document, offset, length)
-// reqly:<id>:<accessHash>:<offset>:<length>
-```
-
-The key deliberately excludes `file_reference`, because refreshed references
-must not reuse bytes fetched under a stale one. Include the current hash when
-you validate cached payloads.
+`If-None-Match`/`304`, `If-Range`, `HEAD`, `416` and `405`. For lower-level
+control use `createFileResponse`, `createFileRequestHandler` or
+`streamFileRange`.
 
 ## Closing
 
@@ -133,3 +238,4 @@ close explicitly on shutdown.
 4. **Do not hash in the streaming hot path.** Verify out of band and cache.
 5. **Use the SDK or the primitives — both are first-class.** Nothing here hides
    `TlWriter`, `Connection` or `igeEncrypt`.
+6. **Cache by reference, not just by id.** `ReqlySdk.cacheKey()` already does.

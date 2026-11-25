@@ -1,10 +1,11 @@
 {
   "name": "reqlyproto",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "A lightweight MTProto 2.0 request/reply client for Cloudflare Workers and Node.",
   "type": "module",
   "license": "ASYNCTRIC-3.0",
   "author": "Mellouki Jamal",
+  "homepage": "https://github.com/JamalMellouki/reqly-mtproto#readme",
   "keywords": [
     "mtproto",
     "telegram",
@@ -14,7 +15,10 @@
     "websocket",
     "http-streaming",
     "reqly",
-    "asynctric"
+    "asynctric",
+    "range-requests",
+    "cache",
+    "retry"
   ],
   "files": [
     "dist",

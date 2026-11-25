@@ -19,6 +19,8 @@ import { sha256 } from "../dist/hashes.js"
 import { createStreamToken, verifyStreamToken } from "../dist/token.js"
 import { TlReader, TlWriter } from "../dist/tl.js"
 import { parseByteRange } from "../dist/worker.js"
+import { MemoryCache } from "../dist/cache.js"
+import { withRetry } from "../dist/retry.js"
 
 const crypto = webcrypto
 const MB = 1024 * 1024
@@ -51,7 +53,7 @@ async function timed(label, bytes, fn, runs = 3) {
   return result
 }
 
-console.log("reqly 2.0.0 — local benchmark (dist build, Node " + process.version + ")")
+console.log("reqly 2.1.0 — local benchmark (dist build, Node " + process.version + ")")
 console.log("")
 
 const key = new Uint8Array(32).map((_, i) => (i * 37 + 11) & 0xff)
@@ -91,10 +93,18 @@ const payload = new TlWriter().uint(0xc4f9186b).long(123456789n).bytes(block1m.s
 
 add(await timed("TL encode 1 method", payload.length, () => { new TlWriter().uint(0xc4f9186b).long(123456789n).bytes(block1m.subarray(0, 64)).bytes(new TextEncoder().encode("reqly")).result() }, 50))
 add(await timed("TL decode 1 method", payload.length, () => { const r = new TlReader(payload); r.uint(); r.long(); r.bytes(); r.bytes() }, 50))
-const token = await createStreamToken("bench-only-not-a-secret", { d: "123", o: 0, l: 1024 })
-add(await timed("createStreamToken", 0, () => createStreamToken("bench-only-not-a-secret", { d: "123", o: 0, l: 1024 }), 20))
+const token = await createStreamToken("bench-only-not-a-secret", { m: 123, w: "bench", k: "stream" })
+add(await timed("createStreamToken", 0, () => createStreamToken("bench-only-not-a-secret", { m: 123, w: "bench", k: "stream" }), 20))
 add(await timed("verifyStreamToken", 0, () => verifyStreamToken("bench-only-not-a-secret", token), 20))
 add(await timed("parseByteRange", 0, () => parseByteRange("bytes=0-8388607", 100 * MB), 100))
+
+console.log("")
+console.log("Cache + retry (2.1.0)")
+const benchCache = new MemoryCache({ maxBytes: 64 * MB, ttlSeconds: 0 })
+benchCache.put("bench", block1m)
+add(await timed("MemoryCache put 1 MB", MB, () => { benchCache.put("bench", block1m) }, 20))
+add(await timed("MemoryCache match 1 MB", MB, () => { benchCache.match("bench") }, 50))
+add(await timed("withRetry immediate success", 0, () => withRetry(async () => 1, { retries: 0 }), 200))
 
 await writeFile(new URL("../docs/benchmark-results.json", import.meta.url), JSON.stringify(results, null, 2) + "\n")
 console.log("")

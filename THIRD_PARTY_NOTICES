@@ -1,4 +1,4 @@
-Third-party notices for reqly 2.0.0
+Third-party notices for reqly 2.1.0
 
 The obfuscated WebSocket transport (src/transport.ts) follows the design of
 mtproto-workers by bunizao (MIT License), in particular the stateful AES-CTR

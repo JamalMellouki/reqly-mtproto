@@ -1,4 +1,4 @@
-# reqly 2.0.0 — architecture
+# reqly 2.1.0 — architecture
 
 ![Architecture at a glance](./assets/architecture.svg)
 
@@ -22,6 +22,9 @@ flowchart LR
     S --> H[HTTP 206 streaming]
     S --> WS[WebSocket streaming]
     S --> TK[HMAC stream tokens]
+    S --> M[MemoryCache]
+    S --> CA[Cache API store]
+    S --> R[withRetry]
 ```
 
 ## Cross-DC file download
@@ -64,6 +67,28 @@ flowchart TD
     Z --> A[Assemble 206 response]
     A --> H[ETag + Accept-Ranges + Content-Range]
 ```
+
+## Cache and retry path
+
+```mermaid
+flowchart TD
+    R[sdk.download / range / stream] --> K[ReqlySdk.cacheKey]
+    K --> M{SdkCache.match}
+    M -->|hit| B[Return cached bytes]
+    M -->|miss| W[withRetry]
+    W -->|transient failure| D[Backoff + jitter, bounded]
+    D --> W
+    W -->|success| G[upload.getFile]
+    G --> V{Complete block?}
+    V -->|yes| P[SdkCache.put]
+    V -->|no| N[Return bytes without caching]
+    P --> B
+```
+
+The cache is always correctness-first: the key includes the `file_reference`
+fingerprint, and a short read is never stored. Retry never repeats
+`FILE_REFERENCE_EXPIRED` or `FILE_MIGRATE_X`; those follow explicit refresh and
+DC-migration flows.
 
 ## Trust boundaries
 

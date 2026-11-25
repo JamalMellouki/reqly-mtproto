@@ -384,6 +384,21 @@ export async function createFileResponse(
     return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET, HEAD" } })
   }
 
+  // Conditional requests: a matching ETag means the client already has the
+  // bytes. 304 responses carry no body and must still expose the validators.
+  const ifNoneMatch = request.headers.get("if-none-match")
+  if (ifNoneMatch) {
+    const matches = ifNoneMatch.trim() === "*" ||
+      ifNoneMatch.split(",").some((tag) => tag.trim() === etag)
+    if (matches) {
+      const headers = new Headers(config.headers)
+      headers.set("ETag", etag)
+      headers.set("Cache-Control", `public, max-age=${config.cacheTtl}`)
+      headers.set("Accept-Ranges", config.ignoreRange ? "none" : "bytes")
+      return new Response(null, { status: 304, headers })
+    }
+  }
+
   // A one-request player deliberately ignores Range: it wants the complete
   // movie in a single 200 response. `Accept-Ranges: none` tells the browser
   // not to issue a second request for the tail.
